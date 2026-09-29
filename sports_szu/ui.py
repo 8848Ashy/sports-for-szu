@@ -310,15 +310,22 @@ class App:
                     self.reload_engine()
                 elif action == 'login':
                     self.events.put(('status', '请在官方浏览器窗口完成登录；托管暂时等待登录完成'))
-                    login_account = self.vault.read()
-                    if value:
-                        login_account['password'] = value
-                    cookies = sign_in(login_account, interactive=True)
-                    value = None
-                    login_account = None
-                    self.vault.update(cookies=cookies)
-                    self.reload_engine()
-                    self.events.put(('log', '登录已验证，Cookie 已加密保存'))
+                    try:
+                        login_account = self.vault.read()
+                        if value:
+                            login_account['password'] = value
+                        cookies = sign_in(login_account, interactive=True)
+                        value = None
+                        login_account = None
+                        self.vault.update(cookies=cookies)
+                        self.reload_engine()
+                        self.events.put(('log', '登录已验证，Cookie 已加密保存'))
+                    except Exception as exc:
+                        # Playwright exceptions used to be collapsed into a generic
+                        # message, making a browser flash look like a crash.
+                        safe = str(exc).replace('\r', ' ').replace('\n', ' ')[:500]
+                        self.events.put(('log', f'官方登录未完成（{type(exc).__name__}）：{safe}'))
+                        self.events.put(('status', '官方登录失败；请根据日志处理后重试'))
                 elif action in ('confirm', 'cancel'):
                     if not self.engine:
                         raise ValueError('请先登录')

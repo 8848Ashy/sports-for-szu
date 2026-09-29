@@ -212,10 +212,23 @@ class Engine:
             return
         quote = self.api.quote(row['WID'])
         amount = quote['gxje']
-        if (quote['zuizong'] != 0 or quote['tuipiao'] != amount or quote['tksyje'] < amount
-                or amount > job['max_cents'] or money(row.get('TRANAMT')) != amount):
-            self.store.patch_order(key, auto_pay=False, message='余额不足、超上限或金额不一致；未付款')
-            self.notify('自动付款已暂停：余额不足、超上限或报价不一致，请检查订单')
+        declared = money(row.get('TRANAMT'))
+        # Unpaid rows commonly report TRANAMT=0.00; the authoritative quote is
+        # payBookingInfo.gxje. Only compare a positive amount supplied by the site.
+        reasons = []
+        if quote['zuizong'] != 0:
+            reasons.append('订单仍有应付余额')
+        if quote['tuipiao'] != amount:
+            reasons.append('支付金额与退款金额不一致')
+        if quote['tksyje'] < amount:
+            reasons.append('学校余额不足')
+        if amount > job['max_cents']:
+            reasons.append(f'超过单笔上限{job["max_cents"] / 100:.2f}元')
+        if declared > 0 and declared != amount:
+            reasons.append('订单金额与支付报价不一致')
+        if reasons:
+            self.store.patch_order(key, auto_pay=False, message='；'.join(reasons) + '；未付款')
+            self.notify('自动付款已暂停：' + '；'.join(reasons))
             return
         token = self.api.token()
         fresh = self.row(job)

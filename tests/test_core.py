@@ -173,6 +173,12 @@ class EngineTests(unittest.TestCase):
         self.process()
         self.assertEqual(self.api.pay_calls, 0)
 
+    def test_unpaid_zero_transaction_amount_uses_quote(self):
+        self.job()
+        self.api.rows[0]['TRANAMT'] = '0.00'
+        self.process()
+        self.assertEqual(self.api.pay_calls, 1)
+
     def test_cannot_pay_another_owner(self):
         self.job()
         self.api.rows[0]['YYRGH'] = 'someone-else'

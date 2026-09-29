@@ -89,7 +89,8 @@ class App:
         actions = [('新增计划', lambda: self.plan_editor(), 'Accent.TButton'),
                    ('编辑选中计划', self.edit_plan, 'TButton'),
                    ('删除选中计划', self.delete_plan, 'Danger.TButton'),
-                   ('⚡ 立即抢场', self.immediate_booking, 'Success.TButton'),
+                   ('⚡ 立即蹲退', self.immediate_booking, 'Success.TButton'),
+                   ('⏹ 停止蹲退', self.stop_watch, 'Danger.TButton'),
                    ('⏱ 开启定时抢场', lambda: self.scheduler(True), 'Warn.TButton'),
                    ('暂停新预约', lambda: self.scheduler(False), 'TButton')]
         for label, action, style_name in actions:
@@ -110,9 +111,12 @@ class App:
         if not self.engine:
             messagebox.showwarning('尚未登录', '请先在“账号与安全”完成官方登录。')
             return
-        if not messagebox.askyesno('立即抢场', f'立即执行“{plan.name}”的第一个时段 {plan.slots[0]}？\n\n这会真实创建预约订单；自动付款仍按计划设置执行。'):
+        if not messagebox.askyesno('立即蹲退监控', f'开始监控“{plan.name}”的 {plan.slots[0]}？\n\n这只会按间隔查询可用场地，不会自动创建订单。发现释放场地后会在日志和通知中提示，由你决定是否预约。'):
             return
-        self.actions.put(('immediate', plan.id))
+        self.actions.put(('watch', plan.id))
+
+    def stop_watch(self):
+        self.actions.put(('watch_stop', None))
 
     def build_orders(self):
         bar = ttk.Frame(self.orders_tab)
@@ -363,18 +367,25 @@ class App:
                     else:
                         self.engine.request_cancel(value)
                     self.last_tick = 0
-                elif action == 'immediate':
+                elif action == 'watch':
                     if not self.engine:
                         raise ValueError('请先登录')
                     plan_data = self.store.get('plans', value)
                     if not plan_data:
                         raise ValueError('计划不存在')
                     plan = Plan(**plan_data).validate()
-                    self.engine.book(plan, plan.slots[0])
-                    self.events.put(('log', '立即抢场任务已执行；请在“我的场地”核对订单'))
+                    self.watch_plan = plan
+                    self.watch_last = 0
+                    self.events.put(('log', '蹲退监控已开始：只查询，不自动下单'))
+                elif action == 'watch_stop':
+                    self.watch_plan = None
+                    self.events.put(('log', '蹲退监控已停止'))
                 if self.engine and time.monotonic() - self.last_tick >= 1:
                     self.last_tick = time.monotonic()
                     self.engine.tick()
+                    if getattr(self, 'watch_plan', None) and time.monotonic() - getattr(self, 'watch_last', 0) >= 5:
+                        self.watch_last = time.monotonic()
+                        self.watch_once(self.watch_plan)
                 self.events.put(('status', ('托管运行中' if self.engine else '尚未登录') +
                                  (' · 定时抢场已开启' if self.store.get('settings', 'scheduler_enabled', False) else ' · 新预约暂停')))
             except LoginRequired:
@@ -402,6 +413,20 @@ class App:
                     self.last_error_notice = time.monotonic()
                     self.emit(str(exc) if isinstance(exc, (ValueError, RuntimeError)) else '操作未完成，请检查登录和网络，必要时到官网核实订单')
                 self.stop.wait(2)
+
+    def watch_once(self, plan):
+        """蹲退只查询，不调用 insertVenueBookingInfo。"""
+        try:
+            date = (now().date() + __import__('datetime').timedelta(days=plan.day_offset)).isoformat()
+            for slot in plan.slots:
+                rooms = self.engine.api.rooms(plan, date, slot)
+                if rooms:
+                    names = '、'.join(str(x.get('CDMC', '')) for x in rooms[:5])
+                    self.emit(f'发现可预约释放场地：{date} {slot} · {names}；请手动确认后再预约')
+                else:
+                    self.events.put(('log', f'蹲退查询：{date} {slot} 暂无可用场地'))
+        except Exception:
+            self.events.put(('log', '蹲退查询失败，将在下个间隔重试'))
 
     def drain(self):
         for _ in range(100):

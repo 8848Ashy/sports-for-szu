@@ -33,9 +33,19 @@ class App:
         if 'vista' in style.theme_names():
             style.theme_use('vista')
         style.configure('Treeview', rowheight=30)
-        style.configure('TButton', padding=(10, 5))
+        root.configure(bg='#f0f2f5')
+        style.configure('TButton', padding=(12, 7), font=('Microsoft YaHei UI', 10))
+        style.configure('Accent.TButton', background='#1890ff', foreground='white')
+        style.configure('Success.TButton', background='#52c41a', foreground='white')
+        style.configure('Warn.TButton', background='#fa8c16', foreground='white')
+        style.configure('Danger.TButton', background='#ff4d4f', foreground='white')
+        style.configure('Card.TLabelframe', background='white')
+        style.configure('Card.TLabelframe.Label', background='white', foreground='#666')
         self.status = tk.StringVar(value='启动中；不会自动启用新预约计划')
-        ttk.Label(root, text='深大预约助手', font=('Microsoft YaHei UI', 18, 'bold')).pack(anchor='w', padx=20, pady=(16, 5))
+        header = ttk.Frame(root)
+        header.pack(fill='x', padx=20, pady=(16, 5))
+        ttk.Label(header, text='◉  深大体育馆自动预约', font=('Microsoft YaHei UI', 18, 'bold')).pack(side='left')
+        ttk.Label(header, text='本地安全版', foreground='#888').pack(side='right', pady=6)
         ttk.Label(root, textvariable=self.status).pack(anchor='w', padx=20, pady=(0, 10))
         notebook = ttk.Notebook(root)
         notebook.pack(fill='both', expand=True, padx=16)
@@ -76,14 +86,33 @@ class App:
     def build_plans(self):
         bar = ttk.Frame(self.plans_tab)
         bar.pack(fill='x')
-        for label, action in [('新增计划', lambda: self.plan_editor()), ('编辑选中计划', self.edit_plan),
-                              ('删除选中计划', self.delete_plan), ('开启定时抢场', lambda: self.scheduler(True)),
-                              ('暂停新预约', lambda: self.scheduler(False))]:
-            ttk.Button(bar, text=label, command=action).pack(side='left', padx=(0, 5))
+        actions = [('新增计划', lambda: self.plan_editor(), 'Accent.TButton'),
+                   ('编辑选中计划', self.edit_plan, 'TButton'),
+                   ('删除选中计划', self.delete_plan, 'Danger.TButton'),
+                   ('⚡ 立即抢场', self.immediate_booking, 'Success.TButton'),
+                   ('⏱ 开启定时抢场', lambda: self.scheduler(True), 'Warn.TButton'),
+                   ('暂停新预约', lambda: self.scheduler(False), 'TButton')]
+        for label, action, style_name in actions:
+            ttk.Button(bar, text=label, command=action, style=style_name).pack(side='left', padx=(0, 5))
         ttk.Label(self.plans_tab, text='按北京时间执行；每个时段最多订一场。暂停新预约不会停止已有订单的自动取消。', wraplength=900).pack(anchor='w', pady=8)
         self.plan_table = self.table(self.plans_tab, ('name', 'sport', 'days', 'slots', 'next', 'target'),
                                      ('计划', '项目', '抢场星期', '目标时段', '下次执行', '预约使用日'),
                                      (160, 85, 100, 150, 160, 120))
+
+    def immediate_booking(self):
+        key = self.selection(self.plan_table)
+        if not key:
+            return
+        plan_data = self.store.get('plans', key)
+        if not plan_data:
+            return
+        plan = Plan(**plan_data).validate()
+        if not self.engine:
+            messagebox.showwarning('尚未登录', '请先在“账号与安全”完成官方登录。')
+            return
+        if not messagebox.askyesno('立即抢场', f'立即执行“{plan.name}”的第一个时段 {plan.slots[0]}？\n\n这会真实创建预约订单；自动付款仍按计划设置执行。'):
+            return
+        self.actions.put(('immediate', plan.id))
 
     def build_orders(self):
         bar = ttk.Frame(self.orders_tab)
@@ -334,6 +363,15 @@ class App:
                     else:
                         self.engine.request_cancel(value)
                     self.last_tick = 0
+                elif action == 'immediate':
+                    if not self.engine:
+                        raise ValueError('请先登录')
+                    plan_data = self.store.get('plans', value)
+                    if not plan_data:
+                        raise ValueError('计划不存在')
+                    plan = Plan(**plan_data).validate()
+                    self.engine.book(plan, plan.slots[0])
+                    self.events.put(('log', '立即抢场任务已执行；请在“我的场地”核对订单'))
                 if self.engine and time.monotonic() - self.last_tick >= 1:
                     self.last_tick = time.monotonic()
                     self.engine.tick()

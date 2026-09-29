@@ -1,7 +1,7 @@
 """Official browser login only. Captchas are left to the user, never bypassed."""
 import time
 from urllib.parse import urlparse, quote
-from .api import INDEX, SchoolAPI, LoginRequired
+from .api import INDEX, LoginRequired
 
 LOGIN = 'https://authserver.szu.edu.cn/authserver/login?service=' + quote(INDEX, safe='')
 
@@ -9,7 +9,10 @@ LOGIN = 'https://authserver.szu.edu.cn/authserver/login?service=' + quote(INDEX,
 def sign_in(account, interactive=True):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as runtime:
-        browser = runtime.chromium.launch(headless=not interactive)
+        try:
+            browser = runtime.chromium.launch(headless=not interactive)
+        except Exception as exc:
+            raise RuntimeError('登录浏览器启动失败。请重新运行 setup.cmd 安装 Chromium；原始错误：' + str(exc)[:180]) from exc
         try:
             context = browser.new_context()
             page = context.new_page()
@@ -31,7 +34,8 @@ def sign_in(account, interactive=True):
                 url = urlparse(page.url)
                 if url.scheme == 'https' and url.hostname == 'ehall.szu.edu.cn' and url.path.startswith('/qljfwapp/'):
                     cookies = await_cookies(context)
-                    SchoolAPI(cookies).orders()  # Reject a mere URL redirect with no usable session.
+                    if not cookies:
+                        raise LoginRequired('已跳转但没有取得 ehall Cookie，请重新登录')
                     return cookies
                 page.wait_for_timeout(500)
             raise LoginRequired('未完成登录；如有验证码，请在登录窗口手动完成')

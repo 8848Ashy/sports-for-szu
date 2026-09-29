@@ -355,7 +355,7 @@ class App:
                 # Never print raw HTTP, browser exceptions, credentials or tracebacks to UI logs.
                 if time.monotonic() - self.last_error_notice > 30:
                     self.last_error_notice = time.monotonic()
-                    self.emit(str(exc) if isinstance(exc, ValueError) else '操作未完成，请检查登录和网络，必要时到官网核实订单')
+                    self.emit(str(exc) if isinstance(exc, (ValueError, RuntimeError)) else '操作未完成，请检查登录和网络，必要时到官网核实订单')
                 self.stop.wait(2)
 
     def drain(self):

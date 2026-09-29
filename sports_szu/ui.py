@@ -427,8 +427,11 @@ def main():
         guard = SingleInstance(directory)
         App(root, directory)
         root.mainloop()
-    except Exception:
-        messagebox.showerror('无法启动', '无法读取本地加密数据、已有实例运行或依赖缺失。请先运行 setup.cmd；不要手动删除未结束订单数据。')
+    except RuntimeError as exc:
+        messagebox.showerror('无法启动', str(exc) + '\n\n如果你刚才重复双击了 start.cmd，请先关闭已有的深大预约助手窗口。')
+    except Exception as exc:
+        messagebox.showerror('无法启动', '启动失败：' + type(exc).__name__ + ': ' + str(exc)[:300] +
+                             '\n\n请先运行 setup.cmd；不要手动删除未结束订单数据。')
     finally:
         if guard:
             guard.close()

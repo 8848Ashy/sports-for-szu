@@ -1,0 +1,13 @@
+# Tested Windows runtime dependencies. Update deliberately and rerun pip-audit/tests.
+requests==2.34.2
+playwright==1.63.0
+pystray==0.19.5
+Pillow==12.3.0
+certifi==2026.7.22
+charset-normalizer==3.5.1
+greenlet==3.5.6
+idna==3.20
+pyee==13.0.1
+six==1.17.0
+typing-extensions==4.16.0
+urllib3==2.8.0

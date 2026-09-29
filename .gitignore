@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+dist/
+*.spec
+*.har
+*.db*
+*.sqlite*
+*.secret
+.env*
+config.local.*
+*.log
+cookie*
+.cookie*
+screenshots/

@@ -32,7 +32,17 @@ class App:
         style = ttk.Style()
         if 'vista' in style.theme_names():
             style.theme_use('vista')
-        style.configure('Treeview', rowheight=30)
+        style.configure('TFrame', background='#f0f2f5')
+        style.configure('TLabel', background='#f0f2f5', foreground='#333333')
+        style.configure('Treeview', rowheight=34, background='#ffffff', fieldbackground='#ffffff', foreground='#333333', borderwidth=0, font=('Microsoft YaHei UI', 10))
+        style.configure('Treeview.Heading', background='#fafafa', foreground='#666666', font=('Microsoft YaHei UI', 9, 'bold'), relief='flat')
+        style.map('Treeview', background=[('selected', '#e6f4ff')], foreground=[('selected', '#0050b3')])
+        style.configure('TNotebook', background='#f0f2f5', borderwidth=0)
+        style.configure('TNotebook.Tab', padding=(22, 10), background='#ffffff', foreground='#666666', font=('Microsoft YaHei UI', 10))
+        style.map('TNotebook.Tab', background=[('selected', '#1890ff')], foreground=[('selected', '#ffffff')])
+        style.configure('TEntry', padding=7, fieldbackground='#ffffff')
+        style.configure('TCombobox', padding=6, fieldbackground='#ffffff')
+        style.configure('TCheckbutton', background='#f0f2f5')
         root.configure(bg='#f0f2f5')
         style.configure('TButton', padding=(12, 7), font=('Microsoft YaHei UI', 10))
         style.configure('Accent.TButton', background='#1890ff', foreground='white')
@@ -58,8 +68,10 @@ class App:
         self.build_plans()
         self.build_orders()
         self.build_settings()
-        self.log = ScrolledText(root, height=6, state='disabled', font=('Microsoft YaHei UI', 9))
-        self.log.pack(fill='x', padx=16, pady=10)
+        log_frame = ttk.LabelFrame(root, text='运行日志', padding=(8, 4), style='Card.TLabelframe')
+        log_frame.pack(fill='x', padx=16, pady=(4, 12))
+        self.log = ScrolledText(log_frame, height=5, state='disabled', font=('Consolas', 9), bg='#1a1a2e', fg='#d9e2ec', insertbackground='white', relief='flat', borderwidth=0)
+        self.log.pack(fill='x')
         root.protocol('WM_DELETE_WINDOW', self.hide)
         self.refresh()
         threading.Thread(target=self.worker, daemon=True, name='booking-worker').start()
@@ -95,7 +107,9 @@ class App:
                    ('暂停新预约', lambda: self.scheduler(False), 'TButton')]
         for label, action, style_name in actions:
             ttk.Button(bar, text=label, command=action, style=style_name).pack(side='left', padx=(0, 5))
-        ttk.Label(self.plans_tab, text='按北京时间执行；每个时段最多订一场。暂停新预约不会停止已有订单的自动取消。', wraplength=900).pack(anchor='w', pady=8)
+        info = ttk.LabelFrame(self.plans_tab, text='计划说明', padding=10, style='Card.TLabelframe')
+        info.pack(fill='x', pady=(8, 4))
+        ttk.Label(info, text='按北京时间执行；每个时段最多订一场。暂停新预约不会停止已有订单的自动取消。', wraplength=900).pack(anchor='w')
         self.plan_table = self.table(self.plans_tab, ('name', 'sport', 'days', 'slots', 'next', 'target'),
                                      ('计划', '项目', '抢场星期', '目标时段', '下次执行', '预约使用日'),
                                      (160, 85, 100, 150, 160, 120))
@@ -126,7 +140,9 @@ class App:
         ttk.Button(bar, text='打开学校官网核实', command=lambda: webbrowser.open(INDEX + '#/sportVenue')).pack(side='left')
         self.history = tk.BooleanVar(value=False)
         ttk.Checkbutton(bar, text='显示历史', variable=self.history, command=self.refresh).pack(side='right')
-        ttk.Label(self.orders_tab, text='只托管本软件新建的订单。确认使用 ≠ 入场核验；到期记录自动从当前列表隐藏，异常订单保留。', wraplength=900).pack(anchor='w', pady=8)
+        info = ttk.LabelFrame(self.orders_tab, text='订单安全提示', padding=10, style='Card.TLabelframe')
+        info.pack(fill='x', pady=(8, 4))
+        ttk.Label(info, text='只托管本软件新建的订单。确认使用 ≠ 入场核验；到期记录自动从当前列表隐藏，异常订单保留。', wraplength=900).pack(anchor='w')
         self.order_table = self.table(self.orders_tab, ('venue', 'period', 'cutoff', 'state'),
                                       ('场地', '使用时间', '自动取消截止时间', '状态 / 待处理事项'),
                                       (230, 175, 155, 360))

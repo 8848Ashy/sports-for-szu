@@ -16,23 +16,24 @@ class Store:
             CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY, data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS settings(id TEXT PRIMARY KEY, data TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, data TEXT NOT NULL);
         ''')
         self.db.commit()
 
     def put(self, table, key, value):
-        assert table in ('plans', 'runs', 'orders', 'settings')
+        assert table in ('plans', 'runs', 'orders', 'settings', 'tasks')
         with self.lock, self.db:
             self.db.execute(f'INSERT OR REPLACE INTO {table} VALUES (?,?)',
                             (key, json.dumps(value, ensure_ascii=False)))
 
     def get(self, table, key, default=None):
-        assert table in ('plans', 'runs', 'orders', 'settings')
+        assert table in ('plans', 'runs', 'orders', 'settings', 'tasks')
         with self.lock:
             row = self.db.execute(f'SELECT data FROM {table} WHERE id=?', (key,)).fetchone()
             return json.loads(row[0]) if row else default
 
     def all(self, table):
-        assert table in ('plans', 'runs', 'orders', 'settings')
+        assert table in ('plans', 'runs', 'orders', 'settings', 'tasks')
         with self.lock:
             return [json.loads(x[0]) for x in self.db.execute(f'SELECT data FROM {table} ORDER BY rowid')]
 

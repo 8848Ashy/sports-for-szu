@@ -1,6 +1,7 @@
 """Fixed-origin API adapter. No redirects, raw response logging or external payments."""
 import secrets
-from .models import court_rank
+import re
+from .catalog import SPORTS, booking_type, matches_venue, rank_room
 
 ORIGIN = 'https://ehall.szu.edu.cn'
 BASE = ORIGIN + '/qljfwapp/sys/lwSzuCgyy/'
@@ -23,6 +24,7 @@ class SchoolAPI:
     def __init__(self, cookies):
         import requests
         self.session = requests.Session()
+        self.timeout = 10
         self.session.trust_env = False  # No ambient proxy/netrc credentials.
         self.session.headers.update({'Referer': INDEX, 'Origin': ORIGIN,
                                      'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'})
@@ -38,7 +40,7 @@ class SchoolAPI:
         if not path.endswith('.do') or '..' in path or ':' in path or path.startswith('/'):
             raise ValueError('接口地址不合法')
         try:
-            response = self.session.post(BASE + path, data=data or {}, timeout=(5, 10), allow_redirects=False)
+            response = self.session.post(BASE + path, data=data or {}, timeout=(5, self.timeout), allow_redirects=False)
             if response.status_code in (301, 302, 303, 307, 308, 401, 403):
                 raise LoginRequired('登录失效，请重新登录学校网站')
             response.raise_for_status()
@@ -79,30 +81,35 @@ class SchoolAPI:
     def rooms(self, plan, date, slot):
         start, end = slot.split('-')
         result = self.request('modules/sportVenue/getOpeningRoom.do', {
-            'XMDM': '007' if plan.sport == 'gym' else '001', 'YYRQ': date,
-            'YYLX': '2.0' if plan.sport == 'gym' else '1.0',
+            'XMDM': SPORTS[plan.sport][1], 'YYRQ': date,
+            'YYLX': booking_type(plan),
             'KSSJ': start, 'JSSJ': end, 'XQDM': plan.campus})
         rows = result.get('datas', {}).get('getOpeningRoom', {}).get('rows')
         if str(result.get('code')) != '0' or not isinstance(rows, list):
             raise ApiError('场地查询格式异常')
         candidates = []
         for row in rows:
-            if row.get('disabled') not in (False, 'false'):
+            if row.get('disabled') in (True, 'true'):
                 continue
-            if row.get('CGBM_DISPLAY') != plan.venue or not row.get('CGBM') or not row.get('WID'):
+            if not matches_venue(plan, str(row.get('CGBM_DISPLAY') or row.get('CDMC', ''))) or not row.get('CGBM') or not row.get('WID'):
                 continue
-            if plan.sport == 'badminton' and str(row.get('text', '')).strip() != '可预约':
+            text = str(row.get('text', '')).strip()
+            ratio = re.fullmatch(r'(\d+)/(\d+)', text)
+            available = text == '可预约' or (ratio and 0 < int(ratio[1]) <= int(ratio[2]))
+            if plan.sport == 'gym' and row.get('disabled') in (False, 'false'):
+                available = True
+            if not available:
                 continue
             candidates.append(row)
-        return sorted(candidates, key=lambda r: court_rank(str(r.get('CDMC', '')), plan.preferred, plan.avoided))
+        return sorted(candidates, key=lambda r: rank_room(plan, r))
 
     def book(self, plan, date, slot, room, account):
         start, end = slot.split('-')
         return self.request('sportVenue/insertVenueBookingInfo.do', {
             'DHID': '', 'YYRGH': account['username'], 'YYRXM': account['real_name'],
             'CYRS': '1' if plan.sport == 'gym' else '', 'CGDM': room['CGBM'], 'CDWID': room['WID'],
-            'XMDM': '007' if plan.sport == 'gym' else '001', 'XQWID': plan.campus,
-            'KYYSJD': slot, 'YYRQ': date, 'YYLX': '2.0' if plan.sport == 'gym' else '1.0',
+            'XMDM': SPORTS[plan.sport][1], 'XQWID': plan.campus,
+            'KYYSJD': slot, 'YYRQ': date, 'YYLX': booking_type(plan),
             'YYKS': f'{date} {start}', 'YYJS': f'{date} {end}', 'PC_OR_PHONE': 'pc'}, write=True)
 
     def quote(self, wid):

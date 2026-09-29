@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>自动预约助手</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+<div class="shell">
+  <header><div class="brand"><span data-icon="ball"></span><h1>自动预约助手</h1></div><div class="header-actions"><button id="theme" class="icon-button" title="切换深浅主题" aria-label="切换深浅主题"><span data-icon="moon"></span></button><button id="settings" class="settings"><span data-icon="gear"></span> 设置</button><button id="hide" class="icon-button faint" title="收起到托盘" aria-label="收起到托盘"><span data-icon="close"></span></button></div></header>
+  <nav role="tablist" aria-label="功能导航">
+    <button role="tab" id="tab-booking" aria-selected="true" aria-controls="booking" data-tab="booking">预约</button>
+    <button role="tab" id="tab-schedule" aria-selected="false" aria-controls="schedule" data-tab="schedule">定时预约</button>
+    <button role="tab" id="tab-orders" aria-selected="false" aria-controls="orders" data-tab="orders">我的场地</button>
+    <button role="tab" id="tab-care" aria-selected="false" aria-controls="care" data-tab="care">托管设置</button>
+  </nav>
+  <main>
+    <section id="booking" role="tabpanel" aria-labelledby="tab-booking">
+      <div class="card summary">
+        <button id="summary-user" class="quick user-line"><span data-icon="user"></span><span id="user-name">正在读取本地设置…</span></button>
+        <div class="chips"><button class="chip quick-edit" data-field="target_date"><span data-icon="calendar"></span><span id="summary-date">—</span></button><button class="chip quick-edit" data-field="sport"><span data-icon="sport"></span><span id="summary-sport">羽毛球</span></button><button class="chip quick-edit" data-field="campus"><span data-icon="campus"></span><span id="summary-campus">粤海</span></button></div>
+        <button id="summary-venue-button" class="quick venue-line quick-edit" data-field="venue"><span data-icon="venue"></span><span>预约场馆：<span id="summary-venue">—</span></span></button>
+        <button class="quick times-line quick-edit" data-field="slots"><span data-icon="clock"></span><span id="summary-slots">—</span></button>
+        <div class="summary-bottom"><button class="quick muted quick-edit" data-field="retry_interval" id="summary-params">间隔 1s · 重试 20000 · 超时 10s</button><span class="progress" id="progress">进度 0/2</span></div>
+      </div>
+      <div id="schedule-preview" class="compact-note" hidden><span data-icon="alarm"></span><span id="nearest-timer"></span><button id="go-schedule" class="text-button">管理</button></div>
+      <button id="start" class="primary wide"><span data-icon="play"></span><span id="start-label">开始预约</span></button>
+      <p class="quiet start-hint">持续查询空场，找到后自动预约。点上方信息即可修改。</p>
+      <div id="resume-tasks"></div>
+      <div class="card log-card"><div class="log-heading"><span id="run-state">[ 就绪 ] 等待开始…</span><button id="clear-log" class="text-button muted">清空</button></div><div id="logs" role="log" aria-label="运行日志"></div></div>
+      <details class="card tips"><summary><span data-icon="bulb"></span>预约小贴士<span class="chevron">⌄</span></summary><div class="details-content">开始预约与油猴脚本一致：按间隔查询，发现空场后自动下单，最多完成两个时段。抢满、达到重试上限或点击停止时结束。定时预约到点启动同一流程。<br><br>电脑需保持联网和清醒。关闭窗口后可从系统托盘重新打开。</div></details>
+      <div class="connection"><span class="dot"></span><span id="connection">正在连接本地助手…</span><span class="balance" id="balance-small"></span></div>
+    </section>
+    <section id="schedule" role="tabpanel" aria-labelledby="tab-schedule" hidden>
+      <div class="section-heading"><div><h2>定时预约</h2><p>到点自动开始查询与预约</p></div><button id="new-schedule" class="small-button">＋ 新增</button></div>
+      <div id="schedules-list"></div>
+      <form id="schedule-form" class="card">
+        <div class="card-heading"><span data-icon="alarm"></span><strong id="schedule-form-title">新建定时</strong></div>
+        <input name="id" type="hidden">
+        <label>定时名称<input name="name" maxlength="60" placeholder="例如：工作日羽毛球" required></label>
+        <div class="segmented"><label><input type="radio" name="kind" value="once">单次执行</label><label><input type="radio" name="kind" value="weekly" checked>每周重复</label></div>
+        <div class="form-grid"><label><span id="start-date-label">生效日期</span><input name="start_date" type="date" required></label><label>开始抢场时间<input name="fire_time" type="time" step="1" value="12:30:00" required></label></div>
+        <div id="weekly-fields"><label>每周生效日</label><div id="weekdays" class="weekdays"></div><label>结束日期（可不填）<input name="end_date" type="date"></label></div>
+        <div class="form-divider"></div>
+        <label>要预约哪一天？<select name="date_mode"><option value="offset">按每次执行日计算</option><option value="fixed">指定固定使用日期</option></select></label>
+        <label id="offset-field">预约执行日的几天后<select name="day_offset"><option value="0">当天</option><option value="1" selected>次日（1天后）</option><option value="2">2天后</option><option value="3">3天后</option><option value="4">4天后</option><option value="5">5天后</option><option value="6">6天后</option><option value="7">7天后</option></select></label>
+        <label id="fixed-date-field" hidden>场地使用日期<input name="target_date" type="date"></label>
+        <div class="schedule-config"><div><span class="muted">使用这组预约设置</span><button id="copy-booking" type="button" class="text-button">同步当前设置</button></div><p id="schedule-config-summary"></p></div>
+        <div class="form-grid"><label>最长蹲退（分钟）<input name="duration_minutes" type="number" min="0" max="1440" value="0"><small>0：按最大重试次数结束</small></label><label>允许晚启动（秒）<input name="catchup_seconds" type="number" min="1" max="300" value="180"><small>超过此窗口不补抢</small></label></div>
+        <label class="check"><input name="resume_on_restart" type="checkbox" checked>重启后恢复尚未完成的本次蹲退</label>
+        <label class="check"><input name="enabled" type="checkbox" checked>启用这个定时</label>
+        <div id="schedule-date-preview" class="notice">每次预约日期会随执行日自动更新</div>
+        <button class="primary wide" type="submit"><span data-icon="alarm"></span>保存定时预约</button>
+        <p class="quiet">生效星期指“开始抢场”的星期。预约项目、时段、查询参数随此任务保存；托管设置在任务开始时读取。</p>
+      </form>
+    </section>
+    <section id="orders" role="tabpanel" aria-labelledby="tab-orders" hidden>
+      <div class="section-heading"><div><h2>我的场地</h2><p>点“使用场地”保留这笔预约</p></div><label class="check small"><input id="show-history" type="checkbox">历史</label></div>
+      <div id="orders-list"></div>
+    </section>
+    <section id="care" role="tabpanel" aria-labelledby="tab-care" hidden>
+      <form id="care-form" class="card">
+        <div class="card-heading"><span data-icon="wallet"></span><strong>余额支付与自动取消</strong></div>
+        <label class="check"><input name="auto_pay" type="checkbox">抢到后自动使用余额支付</label>
+        <label>单笔上限（元）<input name="max_cents" type="number" min="0.01" max="1000" step="0.01" required></label>
+        <label>每日自动付款上限（元）<input name="daily_limit" type="number" min="0.01" max="1000" step="0.01" required></label>
+        <label>自动取消提前分钟（默认60，至少60）<input name="cancel_minutes" type="number" min="60" max="10080" required></label>
+        <button type="submit" class="wide">保存新订单设置</button>
+        <p class="quiet">仅对之后新抢到的订单生效。已有订单可在“我的场地”中单独修改；确认使用后不再自动取消。</p>
+      </form>
+      <form id="court-form" class="card"><div class="card-heading"><span data-icon="ball"></span><strong>羽毛球场地优先级 · 粤海</strong></div><p class="quiet">优先场 → 普通场 → 低优先场。同等级按原预约规则排序。</p><label>优先场地<input name="preferred" placeholder="B4-6,C4-6"></label><label>低优先场地<input name="avoided" placeholder="D7-8,A7-8"></label><p class="quiet">支持 B4、B4-6、B4-B6，逗号分隔。低优先不是禁用，其他场地没有时仍会尝试。</p><button class="wide" type="submit">保存场地优先级</button></form>
+      <div class="card balance-card"><span>账户余额</span><strong id="balance-large">—</strong><button id="refresh-balance" class="text-button">刷新</button></div>
+    </section>
+  </main>
+</div>
+<dialog id="booking-dialog"><form id="booking-form"><div class="dialog-heading"><h2>预约设置</h2><button type="button" data-close class="icon-button" aria-label="关闭">×</button></div><label>场地使用日期<input name="target_date" type="date" required></label><div class="form-grid"><label>运动项目<select name="sport"></select></label><label>校区<select name="campus"><option value="1">粤海</option><option value="2">丽湖</option></select></label></div><label id="venue-field">预约场馆<select name="venue"></select></label><label>优先时段 <small>按点击顺序选择，最多预约两个时段</small></label><div id="time-options" class="time-options"></div><p id="selected-times" class="quiet"></p><div class="form-grid thirds"><label>间隔（秒）<input name="retry_interval" type="number" min="1" max="60" step="0.1" required></label><label>最大重试<input name="max_retries" type="number" min="1" max="20000" required></label><label>超时（秒）<input name="request_timeout" type="number" min="3" max="60" required></label></div><button class="primary wide" type="submit">保存设置</button></form></dialog>
+<dialog id="settings-dialog"><div class="dialog-heading"><h2>设置</h2><button type="button" data-close class="icon-button" aria-label="关闭">×</button></div><form id="account-form"><h3>账号与登录</h3><label>学号 / 工号<input name="username" autocomplete="username" required></label><label>姓名<input name="real_name" autocomplete="name" required></label><label>登录密码<input name="password" type="password" autocomplete="off" placeholder="留空保留已保存的密码"></label><label class="check"><input name="remember" type="checkbox">在本机记住密码</label><p class="quiet">使用 Windows 本地加密保存，登录过期时可尝试重新登录；验证码需手动完成。</p><div class="button-row"><button type="submit">保存账号设置</button><button type="button" id="login" class="primary">打开官方登录</button></div></form><div class="form-divider"></div><button id="quit" class="danger wide">退出助手</button><p class="quiet">关闭主窗口会收起到托盘。退出、关机或睡眠期间无法自动付款和取消。</p></dialog>
+<dialog id="order-dialog"><form id="order-time-form"><div class="dialog-heading"><h2>修改自动取消时间</h2><button type="button" data-close class="icon-button" aria-label="关闭">×</button></div><input name="id" type="hidden"><label>自动取消时间<input name="cancel_at" type="datetime-local" required></label><p class="quiet">必须在未来且至少比场地开始早60分钟。保存后恢复此订单的自动取消。</p><button type="submit" class="primary wide">保存时间</button></form></dialog>
+<div id="toast" role="status" hidden></div>
+</body></html>

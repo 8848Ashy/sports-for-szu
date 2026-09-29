@@ -22,10 +22,10 @@ def money(value):
 
 def court_codes(text):
     result = []
-    for item in re.split(r'[,，\s]+', text.strip().upper()):
+    for item in re.split(r'[,，;；\s]+', text.strip().upper()):
         if not item:
             continue
-        match = re.fullmatch(r'([A-Z])(\d{1,2})(?:-(\d{1,2}))?', item)
+        match = re.fullmatch(r'([A-D])(\d{1,2})(?:-(?:\1)?(\d{1,2}))?', item)
         if not match:
             raise ValueError('场地格式示例：B4-6,C4-6')
         letter, first, last = match.groups()
@@ -37,12 +37,12 @@ def court_codes(text):
 
 
 def court_rank(name, preferred, avoided):
-    match = re.search(r'([A-Z]\d{1,2})(?!\d)', name.upper())
-    code = match.group(1) if match else ''
+    match = re.search(r'([A-D])\s*0*(\d{1,2})(?!\d)', name.upper())
+    code = f'{match[1]}{int(match[2])}' if match else ''
     good, bad = court_codes(preferred), court_codes(avoided)
-    if code in good:
-        return good.index(code)
-    return len(good) + 1 + (bad.index(code) if code in bad else -1) + (100 if code in bad else 0)
+    if code in bad:
+        return 10
+    return -10 if code in good else 0
 
 
 @dataclass
@@ -64,6 +64,9 @@ class Plan:
     cancel_minutes: int = 60
     valid_from: str = ''
     valid_until: str = ''
+    retry_interval: float = 1
+    max_retries: int = 20000
+    request_timeout: int = 10
 
     def validate(self):
         if not self.id or not self.name.strip():
@@ -71,7 +74,7 @@ class Plan:
         if not self.weekdays or any(type(x) is not int or x not in range(7) for x in self.weekdays):
             raise ValueError('请选择抢场星期')
         datetime.strptime(self.fire_time, '%H:%M')
-        if self.sport not in ('badminton', 'gym') or self.campus not in ('1', '2'):
+        if self.sport not in ('badminton', 'gym', 'volleyball', 'tennis', 'basketball', 'table_tennis', 'billiards') or self.campus not in ('1', '2'):
             raise ValueError('项目或校区错误')
         if not 0 <= self.day_offset <= 7 or not 60 <= self.cancel_minutes <= 10080:
             raise ValueError('预约日偏移应为0–7天；自动取消至少提前60分钟')
@@ -90,6 +93,10 @@ class Plan:
             raise ValueError('时段不能重叠')
         court_codes(self.preferred)
         court_codes(self.avoided)
+        if set(court_codes(self.preferred)) & set(court_codes(self.avoided)):
+            raise ValueError('同一场地不能同时属于优先和低优先')
+        if not 1 <= self.retry_interval <= 60 or not 1 <= self.max_retries <= 20000 or not 3 <= self.request_timeout <= 60:
+            raise ValueError('间隔1–60秒，重试1–20000次，超时3–60秒')
         for date in (self.valid_from, self.valid_until):
             if date:
                 datetime.strptime(date, '%Y-%m-%d')

@@ -4,6 +4,7 @@ import hashlib
 import threading
 from .api import ApiError, Ambiguous, LoginRequired
 from .models import SHANGHAI, money, now
+from .catalog import SPORTS
 
 
 def owner_key(username):
@@ -41,7 +42,7 @@ class Engine:
             self.store.patch_order(key, cancel_requested=True, message='等待核实并取消')
             self.last_review = 0
 
-    def tick(self):
+    def tick(self, run_schedules=True):
         with self.lock:
             # Outstanding orders always take precedence over making new ones.
             review = self.clock().timestamp() - self.last_review >= 10
@@ -56,28 +57,32 @@ class Engine:
                     raise
                 except (ApiError, ValueError, KeyError, TypeError):
                     self.store.patch_order(job['id'], message='状态核实失败，请打开官网检查；不会重复付款')
-            if self.store.get('settings', 'scheduler_enabled', False):
+            if run_schedules and self.store.get('settings', 'scheduler_enabled', False):
                 for plan in self.store.plans():
                     if plan.due(self.clock()):
                         for slot in plan.slots:
                             self.book(plan, slot)
 
-    def book(self, plan, slot):
+    def run_key(self, plan, date, slot):
+        return f'{owner_key(self.account["username"])}:{date}:{plan.sport}:{plan.campus}:{slot}'
+
+    def book(self, plan, slot, target_date=None, should_stop=lambda: False):
         moment = self.clock()
-        date = (moment.date() + timedelta(days=plan.day_offset)).isoformat()
+        date = target_date or (moment.date() + timedelta(days=plan.day_offset)).isoformat()
         account_key = owner_key(self.account['username'])
         # Dedupe across overlapping plans as well as application restarts.
-        key = f'{account_key}:{date}:{plan.sport}:{plan.campus}:{slot}'
+        key = self.run_key(plan, date, slot)
         run = self.store.get('runs', key)
         if run and run.get('status') in ('submitted', 'unknown', 'done', 'stopped'):
             return
-        if run and moment.timestamp() - run.get('last_try', 0) < 5:
+        if run and moment.timestamp() - run.get('last_try', 0) < plan.retry_interval:
             return
         start = datetime.fromisoformat(f'{date}T{slot.split("-")[0]}').replace(tzinfo=SHANGHAI)
         if moment >= start - timedelta(minutes=plan.cancel_minutes + 5):
             self.store.put('runs', key, {'id': key, 'status': 'stopped', 'reason': '距取消截止时间过近'})
             return
         # Never create a duplicate of an existing reservation in that time period.
+        self.api.timeout = plan.request_timeout
         existing = self.api.orders()
         for row in existing:
             if str(row.get('YYRGH')) == self.account['username'] and row.get('YYSF') == '预约人' and row.get('YYZT') == 'CG_YY':
@@ -90,6 +95,8 @@ class Engine:
         # Strict priority and serial requests; only explicit business rejection
         # permits trying the next court. An ambiguous write stops this time slot.
         for room in rooms:
+            if should_stop():
+                return
             record['status'] = 'submitted'
             self.store.put('runs', key, record)
             try:
@@ -109,7 +116,7 @@ class Engine:
                 order_id = str(order_id)
                 job = {'id': order_id, 'owner': account_key, 'date': date, 'slot': slot,
                        'start': start.timestamp(), 'created': moment.timestamp(), 'room': str(room['WID']),
-                       'sport': '007' if plan.sport == 'gym' else '001', 'campus': plan.campus,
+                       'sport': SPORTS[plan.sport][1], 'campus': plan.campus,
                        'venue': room['CGBM_DISPLAY'] + ' · ' + room.get('CDMC', ''),
                        'cancel_minutes': plan.cancel_minutes, 'max_cents': plan.max_cents,
                        'auto_pay': plan.auto_pay, 'confirmed': False, 'message': '预约成功，待核实订单'}
@@ -124,6 +131,10 @@ class Engine:
                 record['status'] = 'unknown'
                 self.store.put('runs', key, record)
                 self.notify('预约返回异常，请人工核实；已停止该时段重试')
+                return
+            if any(word in result.get('msg', '') for word in ('只能预订2次', '超过限制', '预约上限')):
+                record.update(status='stopped', reason='学校预约次数已达上限')
+                self.store.put('runs', key, record)
                 return
         record['status'] = 'waiting'
         self.store.put('runs', key, record)
@@ -174,7 +185,7 @@ class Engine:
         paid = str(row['SFZF']) == '1'
         if paid:
             self.store.patch_order(key, paid=True)
-        cutoff = job['start'] - job['cancel_minutes'] * 60
+        cutoff = job.get('cancel_at') or job['start'] - job['cancel_minutes'] * 60
         if job.get('cancel_requested') or (not job['confirmed'] and timestamp >= cutoff):
             if timestamp >= job['start'] - 30 * 60:
                 self.store.patch_order(key, message='已错过安全取消窗口，请立即到官网处理')

@@ -70,6 +70,8 @@ class SingleInstance:
         kernel = ctypes.WinDLL('kernel32', use_last_error=True)
         kernel.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
         kernel.CreateMutexW.restype = wintypes.HANDLE
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.CloseHandle.restype = wintypes.BOOL
         self.kernel = kernel
         self.handle = kernel.CreateMutexW(None, False, 'Local\\SportsForSZU.SingleInstance')
         if not self.handle:

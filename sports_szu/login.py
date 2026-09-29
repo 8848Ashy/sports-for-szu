@@ -1,5 +1,7 @@
 """Official browser login only. Captchas are left to the user, never bypassed."""
 import time
+from pathlib import Path
+import sys
 from urllib.parse import urlparse, quote
 from .api import INDEX, LoginRequired
 
@@ -10,7 +12,9 @@ def sign_in(account, interactive=True):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as runtime:
         try:
-            browser = runtime.chromium.launch(headless=not interactive)
+            # Portable builds use the installed Microsoft Edge, not a browser download.
+            options = {'channel': 'msedge'} if getattr(sys, 'frozen', False) or not Path(runtime.chromium.executable_path).is_file() else {}
+            browser = runtime.chromium.launch(headless=not interactive, **options)
         except Exception as exc:
             raise RuntimeError('登录浏览器启动失败。请重新运行 setup.cmd 安装 Chromium；原始错误：' + str(exc)[:180]) from exc
         try:

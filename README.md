@@ -1,8 +1,8 @@
 # 深大预约助手 · sports-for-szu
 
-Windows 本地桌面预约助手，使用油猴式 HTML 界面，支持羽毛球、一楼健身房等项目。无需 AI API，也没有云端账号服务器。
+Windows 独立桌面预约助手，使用 Qt 原生窗口内嵌油猴式 HTML 界面，没有浏览器标签页或地址栏，支持羽毛球、一楼健身房等项目。无需 AI API，也没有云端账号服务器。
 
-**状态：0.2.0 试用版。离线测试和浏览器界面测试已覆盖主要流程，未使用真实账号进行预约、扣款、取消验收。学校内部接口可能变化，不能保证抢到、支付成功或自动退款。请先小额人工验证，不要直接无人值守运行。**
+**状态：0.3.0 试用版。离线测试、浏览器测试和原生窗口测试已覆盖主要流程，未使用真实账号进行预约、扣款、取消验收。学校内部接口可能变化，不能保证抢到、支付成功或自动退款。请先小额人工验证，不要直接无人值守运行。**
 
 这是独立编写的本地实现，并非 `Autur-wang/gym-bot` 的整包复制；没有附带任何个人 HAR 或账号配置。
 
@@ -22,19 +22,21 @@ Windows 本地桌面预约助手，使用油猴式 HTML 界面，支持羽毛球
 
 ## 安装与启动
 
-需要 Windows 10/11、Python 3.11 或更新版本及 Python Launcher。界面复用安装时下载的 Chromium，不需要 Node.js 或 Electron。
+普通用户：使用便携版，完整解压后双击 `SportsForSZU.exe`，不要单独移动 exe。需要 Windows 10/11 和 Microsoft Edge，不需要安装 Python。见 [便携版说明](PORTABLE.md)。
+
+源码运行：需要 Windows 10/11、Python 3.11 或更新版本及 Python Launcher，不需要 Node.js 或 Electron。Qt 内嵌页面的技术说明见 [Qt WebEngine](https://doc.qt.io/qtforpython-6/overviews/qtwebengine-overview.html)。
 
 1. 下载仓库 ZIP 并解压，或 `git clone` 到本地。
-2. 双击 `setup.cmd`，安装独立 `.venv` 依赖及 Chromium。此过程不会登录学校账号。
-3. 双击 `start.cmd`。
+2. 双击 `setup.cmd`，依赖安装到短路径 `%LOCALAPPDATA%\SZU-Runtime`，避免 Windows 长路径安装失败；账号数据目录保持不变。此过程不会登录学校账号。
+3. 双击 `start.cmd`，阅读启动须知并勾选同意。不同意则退出，不会启动订单托管；已有订单需自行到官网管理。
 4. 点击右上“设置”，填学号、姓名；可勾选记住密码。保存后点击“打开官方登录”，完成学校登录与验证码。请始终使用配置的本人账号。
 5. 点击预约卡片上的日期、项目、场馆、时段或参数修改配置；点击“开始预约”立即蹲退。有空场时会自动下单，不是仅提醒。
 6. 需要定时运行时，在“定时预约”添加并启用任务；每项定时保存自己的预约配置。健身房不选择具体球场。
 7. 在“托管设置”开启余额付款、设置金额上限及取消提前量；只影响之后开始的任务。“我的场地”可以提前确认使用、取消或单独调整取消时间。
 
 ```powershell
-python -m unittest discover -s tests -v
-.venv\Scripts\python.exe run.py
+& "$env:LOCALAPPDATA\SZU-Runtime\Scripts\python.exe" -m unittest discover -s tests -v
+& "$env:LOCALAPPDATA\SZU-Runtime\Scripts\python.exe" run.py
 ```
 
 不同项目的放号规则可能不同：12:30是可修改的默认执行时间，不代表所有场馆均在此刻放号。
@@ -42,6 +44,9 @@ python -m unittest discover -s tests -v
 ## 使用与安全说明
 
 - 正常保持软件运行、电脑清醒且联网。关闭窗口收起到托盘；真正退出、睡眠或关机会停止工作。本版本不修改系统电源或启动设置。
+- 托盘不可用时关闭窗口仅最小化。退出会显示未结束订单数量，等待当前请求完成后退出。
+- 取消预约使用界面内二次确认，不依赖浏览器弹窗；“已排队”不是成功，最终以订单状态及学校记录为准。
+- 仅限非商业用途，禁止收费代抢或倒卖场地。完整启动须知见 `sports_szu/terms.py`，其中条款不构成绝对免责保证。
 - “停止预约”停止当前蹲退任务，已有订单继续托管；未来定时需单独暂停。“使用场地”只免除该订单的自动取消，不是入场签到，也不能代替付款。
 - 补执行窗口默认3分钟、最大5分钟，超出不补抢。查询按配置间隔串行执行，不大规模并发请求。手动任务重启后需点击恢复；定时任务可选择自动恢复未完成的本次蹲退。
 - 开始前不足“取消提前量+5分钟”时不再创建订单，避免刚付钱就到取消时间。
@@ -71,7 +76,11 @@ python -m unittest discover -s tests -v
 - `store.py`：SQLite 持久化；`login.py`：官方浏览器登录。
 - `service.py` / `scheduling.py`：任务队列、蹲退与详细定时。
 - `desktop.py` / `webserver.py` / `web/`：桌面窗口、仅本机访问的界面桥接、HTML/CSS/JS、托盘与本机提醒。
+- `window.py`：Qt 原生窗口、系统托盘、启动须知与退出管理；`terms.py`：须知文本与版本。
 
 界面测试：先安装 Chromium，再在 PowerShell 设置 `$env:SZU_TEST_BROWSER='1'`，使用虚拟环境运行测试。测试使用虚构账号和模拟接口，不操作真实订单。
+原生窗口测试另设 `$env:SZU_TEST_NATIVE='1'`。构建便携版运行 `build.cmd`，输出在用户下载目录 `SportsForSZU-v0.3.0/SportsForSZU/`（短路径避免 Windows 文件名限制）。便携 EXE 可使用 `--smoke-test` 验证打包窗口：只创建临时空数据，不读取真实账号、不运行预约后台。
+
+牛肉面图标经内置 image_gen 从用户照片卡通化生成，背景已移除；提示词与 PNG/ICO 在 `sports_szu/assets/`。第三方许可证见 [组件说明](THIRD_PARTY.md)。
 
 请遵守学校预约规则，勿用多人账号、大量并发或绕过认证的方式抢占资源。

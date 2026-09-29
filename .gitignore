@@ -5,6 +5,7 @@ __pycache__/
 build/
 dist/
 *.spec
+!tools/sports.spec
 *.har
 *.db*
 *.sqlite*

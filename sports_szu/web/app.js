@@ -24,6 +24,16 @@ let scheduleConfig = null, serverOffset = 0, toastTimer;
 const yuan = cents => cents == null ? '—' : `¥${(cents / 100).toFixed(2)}`;
 const stamp = seconds => new Date(seconds * 1000 + 8 * 3600000).toISOString().slice(0,16).replace('T',' ');
 function toast(text) { $('#toast').textContent = text; $('#toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 4500); }
+function askConfirmation(message) {
+  const dialog = $('#confirm-dialog');
+  if (dialog.open) return Promise.resolve(false);
+  $('#confirm-message').textContent = message;
+  dialog.returnValue = 'no';
+  return new Promise(resolve => {
+    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'yes'), {once:true});
+    dialog.showModal();
+  });
+}
 async function api(action, payload = {}) {
   const response = await fetch('/api/action', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,payload})});
   const result = await response.json();
@@ -42,7 +52,7 @@ $$('dialog').forEach(dialog => dialog.addEventListener('click', event => { if(ev
 document.documentElement.dataset.theme = localStorage.getItem('szu-theme') || 'light';
 $('#theme').onclick = () => { const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; localStorage.setItem('szu-theme',theme); };
 $('#hide').onclick = () => act('window_hide');
-$('#quit').onclick = () => { if(confirm('退出后将停止预约、付款和自动取消。确定退出？')) act('quit'); };
+$('#quit').onclick = () => act('quit');
 function openSettings() { if(!state) return; const form = $('#account-form'); form.elements.username.value = state.account.username; form.elements.real_name.value = state.account.real_name; form.elements.remember.checked = state.account.remembered; form.elements.password.value = ''; $('#settings-dialog').showModal(); }
 $('#settings').onclick = openSettings;
 $('#summary-user').onclick = openSettings;
@@ -109,10 +119,10 @@ function renderOrders(){
 $('#orders-list').onclick=async event=>{
   const button=event.target.closest('[data-order-action]');if(!button)return;
   const id=button.closest('[data-order]').dataset.order, action=button.dataset.orderAction;
-  if(action==='cancel'&&!confirm('确定取消这笔预约吗？'))return;
-  if(action==='retry_pay'&&!confirm('按此订单的金额上限重新核验并尝试余额付款？'))return;
+  if(action==='cancel'&&!await askConfirmation('确定取消这笔预约吗？即使已确认使用，仍会提交取消。退款结果以学校系统为准。'))return;
+  if(action==='retry_pay'&&!await askConfirmation('按此订单的金额上限重新核验并尝试余额付款？'))return;
   if(action==='time'){const job=state.orders.find(j=>j.id===id),f=$('#order-time-form').elements;f.id.value=id;f.cancel_at.value=stamp(job.cancel_at||job.start-job.cancel_minutes*60).replace(' ','T');$('#order-dialog').showModal();return;}
-  await act('order_'+action,{id});
+  if(await act('order_'+action,{id}))toast(action==='cancel'?'取消请求已排队，请等待订单状态更新；这不代表学校已确认取消。':'操作已排队，请等待状态更新');
 };
 $('#order-time-form').onsubmit=async event=>{event.preventDefault();const f=event.target.elements;if(await act('order_time',{id:f.id.value,cancel_at:f.cancel_at.value})){$('#order-dialog').close();toast('自动取消时间已更新');}};
 
@@ -145,7 +155,7 @@ function renderSchedules(){
   const key=JSON.stringify(state.schedules);if(key===scheduleKey)return;scheduleKey=key;
   $('#schedules-list').innerHTML=state.schedules.length?state.schedules.map(item=>`<article class="card" data-schedule="${esc(item.id)}"><div class="schedule-title"><strong>${esc(item.name)}</strong><span class="tag">${item.enabled?'已启用':'已暂停'}</span></div><div class="schedule-detail">${item.kind==='once'?esc(item.start_date):'每周 '+item.weekdays.map(i=>dayLabels[i]).join('、')} · ${esc(item.fire_time)}<br><span class="muted">${esc(state.sports[item.config.sport])} · ${esc(item.config.slots.join('，'))}<br>${item.date_mode==='offset'?`预约${item.day_offset===0?'当天':item.day_offset+'天后'}`:'预约 '+esc(item.target_date)}</span></div><div class="countdown" data-fire="${esc(item.next_fire||'')}">${item.enabled?'计算下一次执行…':'定时已暂停'}</div><div class="button-row"><button data-schedule-action="edit">编辑</button><button data-schedule-action="toggle">${item.enabled?'暂停定时':'启用定时'}</button><button class="danger" data-schedule-action="delete">删除</button></div></article>`).join(''):'<div class="empty">尚未设置定时任务<br>在下面设置单次或每周预约</div>';
 }
-$('#schedules-list').onclick=async event=>{const button=event.target.closest('[data-schedule-action]');if(!button)return;const id=button.closest('[data-schedule]').dataset.schedule,item=state.schedules.find(x=>x.id===id);if(button.dataset.scheduleAction==='edit'){fillSchedule(item);$('#schedule-form').scrollIntoView({behavior:'smooth',block:'start'});}else if(button.dataset.scheduleAction==='toggle'){await act('schedule_toggle',{id,enabled:!item.enabled});}else if(confirm('删除这条定时？已创建的订单会继续托管。'))await act('schedule_delete',{id});};
+$('#schedules-list').onclick=async event=>{const button=event.target.closest('[data-schedule-action]');if(!button)return;const id=button.closest('[data-schedule]').dataset.schedule,item=state.schedules.find(x=>x.id===id);if(button.dataset.scheduleAction==='edit'){fillSchedule(item);$('#schedule-form').scrollIntoView({behavior:'smooth',block:'start'});}else if(button.dataset.scheduleAction==='toggle'){await act('schedule_toggle',{id,enabled:!item.enabled});}else if(await askConfirmation('删除这条定时？已创建的订单会继续托管。'))await act('schedule_delete',{id});};
 function countdown(iso){const seconds=Math.max(0,Math.floor((Date.parse(iso)-Date.now()-serverOffset)/1000));const d=Math.floor(seconds/86400),h=Math.floor(seconds%86400/3600),m=Math.floor(seconds%3600/60),s=seconds%60;return `倒计时：${d?d+'天':''}${h}时${m}分${s}秒`;}
 function timers(){if(!state)return;$$('[data-fire]').forEach(el=>{if(el.dataset.fire)el.textContent=countdown(el.dataset.fire);else el.textContent=el.closest('[data-schedule]')&&state.schedules.find(s=>s.id===el.closest('[data-schedule]').dataset.schedule)?.enabled?'无后续执行日期':'定时已暂停';});const next=state.schedules.filter(s=>s.next_fire).sort((a,b)=>a.next_fire.localeCompare(b.next_fire))[0];$('#schedule-preview').hidden=!next;if(next)$('#nearest-timer').textContent=countdown(next.next_fire);}
 function render(){

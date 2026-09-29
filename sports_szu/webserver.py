@@ -77,7 +77,8 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 return self.reply(500, {'error': '无法读取本地数据，请检查文件权限'})
         assets = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
-                  '/style.css': ('style.css', 'text/css; charset=utf-8')}
+                  '/style.css': ('style.css', 'text/css; charset=utf-8'),
+                  '/icon.png': ('../assets/noodles.png', 'image/png')}
         if url.path not in assets:
             return self.reply(404, {'error': '没有这个页面'})
         name, content_type = assets[url.path]

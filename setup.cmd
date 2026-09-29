@@ -1,10 +1,11 @@
 @echo off
 cd /d "%~dp0"
-py -3 -m venv .venv
+set "SZU_RUNTIME=%LOCALAPPDATA%\SZU-Runtime"
+py -3 -m venv "%SZU_RUNTIME%"
 if errorlevel 1 goto failed
-.venv\Scripts\python.exe -m pip install -r requirements-lock.txt
+"%SZU_RUNTIME%\Scripts\python.exe" -m pip install -r requirements-lock.txt
 if errorlevel 1 goto failed
-.venv\Scripts\python.exe -m playwright install chromium
+"%SZU_RUNTIME%\Scripts\python.exe" -m playwright install chromium
 if errorlevel 1 goto failed
 echo Setup complete. Run start.cmd.
 pause

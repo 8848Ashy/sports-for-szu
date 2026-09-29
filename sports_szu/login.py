@@ -20,13 +20,19 @@ def sign_in(account, interactive=True):
             # Enter saved secrets only on the exact official HTTPS login origin.
             url = urlparse(page.url)
             if url.scheme == 'https' and url.hostname == 'authserver.szu.edu.cn':
-                if page.locator('#username').count():
-                    page.locator('#username').fill(account.get('username', ''))
-                if account.get('password') and page.locator('#password').count():
-                    page.locator('#password').fill(account['password'])
+                # The CAS page contains several tabs/forms with duplicate IDs.
+                # Fill only the visible, first matching field; strict locators
+                # otherwise abort before the user can complete captcha.
+                usernames = page.locator('input#username:visible')
+                passwords = page.locator('input#password:visible')
+                if usernames.count():
+                    usernames.first.fill(account.get('username', ''))
+                if account.get('password') and passwords.count():
+                    passwords.first.fill(account['password'])
                 if not interactive:
                     # No captcha solver; a failed login is surfaced for manual completion.
-                    page.locator('#password').press('Enter')
+                    if passwords.count():
+                        passwords.first.press('Enter')
             deadline = time.monotonic() + (180 if interactive else 25)
             while time.monotonic() < deadline:
                 if page.is_closed():

@@ -65,10 +65,12 @@ class SingleInstance:
     def __init__(self, directory):
         import msvcrt
         self.handle = open(Path(directory) / 'instance.lock', 'a+b')
+        # Some Windows security products deny read access to a lock file while
+        # allowing append/write. The sentinel byte is not security data; write
+        # it without probing with read(), then lock the first byte.
         self.handle.seek(0)
-        if not self.handle.read(1):
-            self.handle.write(b'0')
-            self.handle.flush()
+        self.handle.write(b'0')
+        self.handle.flush()
         self.handle.seek(0)
         try:
             msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)

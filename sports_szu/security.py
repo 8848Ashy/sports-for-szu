@@ -63,20 +63,22 @@ class Vault:
 
 class SingleInstance:
     def __init__(self, directory):
-        import msvcrt
-        self.handle = open(Path(directory) / 'instance.lock', 'a+b')
-        # Some Windows security products deny read access to a lock file while
-        # allowing append/write. The sentinel byte is not security data; write
-        # it without probing with read(), then lock the first byte.
-        self.handle.seek(0)
-        self.handle.write(b'0')
-        self.handle.flush()
-        self.handle.seek(0)
-        try:
-            msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
-        except OSError as exc:
-            self.handle.close()
-            raise RuntimeError('预约助手已在运行，请检查任务栏或托盘') from exc
+        if os.name != 'nt':
+            raise RuntimeError('预约助手需要 Windows 单实例支持')
+        # A named Windows mutex avoids antivirus/ACL failures seen when locking
+        # a file in %LOCALAPPDATA%. The handle remains owned by this process.
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+        kernel.CreateMutexW.restype = wintypes.HANDLE
+        self.kernel = kernel
+        self.handle = kernel.CreateMutexW(None, False, 'Local\\SportsForSZU.SingleInstance')
+        if not self.handle:
+            raise RuntimeError('无法创建单实例锁，请检查 Windows 权限')
+        if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
+            kernel.CloseHandle(self.handle)
+            raise RuntimeError('预约助手已在运行，请检查任务栏或托盘')
 
     def close(self):
-        self.handle.close()
+        if self.handle:
+            self.kernel.CloseHandle(self.handle)
+            self.handle = None

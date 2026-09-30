@@ -14,7 +14,9 @@ const paths = {
   play:'<path d="M7 4l13 8-13 8z"/>', stop:'<rect x="5" y="5" width="14" height="14" rx="1"/>',
   alarm:'<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M5 3L2 6m17-3 3 3M6 19l-2 3m14-3 2 3"/>',
   bulb:'<path d="M8 17c0-3-3-3-3-7a7 7 0 0114 0c0 4-3 4-3 7M8 18h8m-7 3h6"/>',
-  wallet:'<rect x="3" y="5" width="18" height="15" rx="2"/><path d="M3 8l14-5v2m4 7h-6v5h6"/>'
+  wallet:'<rect x="3" y="5" width="18" height="15" rx="2"/><path d="M3 8l14-5v2m4 7h-6v5h6"/>',
+  eye:'<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff:'<path d="M3 3l18 18M10 5a12 12 0 012 0c6 0 10 7 10 7a18 18 0 01-3 4M6 6a18 18 0 00-4 6s4 7 10 7a12 12 0 005-1M10 10a3 3 0 004 4"/>'
 };
 function icon(name) { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.clock}</svg>`; }
 function icons(root=document) { $$('[data-icon]', root).forEach(el => { el.innerHTML = icon(el.dataset.icon); }); }
@@ -53,12 +55,57 @@ document.documentElement.dataset.theme = localStorage.getItem('szu-theme') || 'l
 $('#theme').onclick = () => { const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; localStorage.setItem('szu-theme',theme); };
 $('#hide').onclick = () => act('window_hide');
 $('#quit').onclick = () => act('quit');
-function openSettings() { if(!state) return; const form = $('#account-form'); form.elements.username.value = state.account.username; form.elements.real_name.value = state.account.real_name; form.elements.remember.checked = state.account.remembered; form.elements.password.value = ''; $('#settings-dialog').showModal(); }
+let loadingSettings = false, passwordOwner = '';
+function maskPassword() {
+  $('#account-form').elements.password.type = 'password';
+  const button = $('#toggle-password');
+  button.setAttribute('aria-label', '显示密码');
+  button.setAttribute('aria-pressed', 'false');
+  button.title = '显示密码';
+  button.innerHTML = icon('eye');
+}
+async function openSettings() {
+  if(!state || loadingSettings || $('#settings-dialog').open) return;
+  loadingSettings = true;
+  try {
+    const result = await api('account_load');
+    const form = $('#account-form'), account = result.account;
+    form.elements.username.value = account.username;
+    form.elements.real_name.value = account.real_name;
+    form.elements.remember.checked = account.remember;
+    form.elements.password.value = account.password;
+    passwordOwner = account.username;
+    maskPassword();
+    $('#settings-dialog').showModal();
+  } catch(error) { toast(error.message); }
+  finally { loadingSettings = false; }
+}
+$('#toggle-password').onclick = () => {
+  const field = $('#account-form').elements.password, visible = field.type === 'password';
+  field.type = visible ? 'text' : 'password';
+  const button = $('#toggle-password');
+  button.setAttribute('aria-label', visible ? '隐藏密码' : '显示密码');
+  button.setAttribute('aria-pressed', String(visible));
+  button.title = visible ? '隐藏密码' : '显示密码';
+  button.innerHTML = icon(visible ? 'eyeOff' : 'eye');
+};
+$('#settings-dialog').addEventListener('close', () => {
+  $('#account-form').elements.password.value = '';
+  passwordOwner = '';
+  maskPassword();
+});
+$('#account-form').elements.username.addEventListener('input', event => {
+  if(passwordOwner && event.target.value.trim() !== passwordOwner) {
+    $('#account-form').elements.password.value = '';
+    passwordOwner = '';
+    maskPassword();
+  }
+});
 $('#settings').onclick = openSettings;
 $('#summary-user').onclick = openSettings;
 function accountPayload() { const f=$('#account-form').elements; return {username:f.username.value.trim(),real_name:f.real_name.value.trim(),password:f.password.value,remember:f.remember.checked}; }
-$('#account-form').onsubmit = async event => { event.preventDefault(); if(await act('account_save',accountPayload())) { $('#account-form').elements.password.value=''; toast('账号设置已保存'); } };
-$('#login').onclick = async () => { const data=accountPayload(); if(await act('account_save',data)) { if(await act('login',{password:data.password})) { $('#account-form').elements.password.value=''; toast('请在官方登录窗口完成登录'); } } };
+$('#account-form').onsubmit = async event => { event.preventDefault(); const data=accountPayload(); if(await act('account_save',data)) { passwordOwner=data.username; if(!data.remember) $('#account-form').elements.password.value=''; maskPassword(); toast(state.account.remembered?'账号和密码已加密保存在本机':'账号已保存，未记住密码'); } };
+$('#login').onclick = async () => { const data=accountPayload(); if(await act('account_save',data)) { passwordOwner=data.username; if(await act('login',{password:data.password})) { maskPassword(); toast(data.password?'正在尝试自动登录；如需验证码，请在官方窗口完成':'请在官方窗口输入密码并完成登录'); } } };
 
 function venueOptions(keep) {
   const f=$('#booking-form').elements, gym=f.sport.value==='gym';

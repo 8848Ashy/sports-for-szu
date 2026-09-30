@@ -170,6 +170,11 @@ class BridgeTests(ServiceFixture, unittest.TestCase):
             snapshot = client.get(server.origin + '/api/state')
             self.assertNotIn('SYNTHETIC-PASSWORD', snapshot.text)
             self.assertNotIn('SYNTHETIC-COOKIE', snapshot.text)
+            credentials = {'action': 'account_load', 'payload': {}}
+            self.assertEqual(client.post(server.origin + '/api/action', json=credentials, headers={'Origin': 'https://evil.example'}).status_code, 403)
+            loaded = client.post(server.origin + '/api/action', json=credentials, headers={'Origin': server.origin}).json()
+            self.assertEqual(loaded['account']['password'], 'SYNTHETIC-PASSWORD')
+            self.assertNotIn('cookies', loaded['account'])
             action = {'action': 'booking_stop', 'payload': {}}
             self.assertEqual(client.post(server.origin + '/api/action', json=action, headers={'Origin': 'https://evil.example'}).status_code, 403)
             self.assertEqual(client.post(server.origin + '/api/action', json=action, headers={'Origin': server.origin}).status_code, 200)

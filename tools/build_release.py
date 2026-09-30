@@ -7,7 +7,9 @@ import importlib.metadata
 import os
 
 root = Path(__file__).resolve().parents[1]
-output = Path.home() / 'Downloads' / 'SportsForSZU-v0.3.0'
+sys.path.insert(0, str(root))
+from sports_szu import __version__
+output = Path.home() / 'Downloads' / ('SportsForSZU-v' + __version__)
 work = Path(os.environ['LOCALAPPDATA']) / 'SZU-Build'
 subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm',
     '--distpath', str(output), '--workpath', str(work),

@@ -40,7 +40,7 @@ class DesktopService:
             if task['status'] in ('running', 'waiting_login'):
                 task['status'] = 'queued' if task.get('resume_on_restart') else 'paused_restart'
                 store.put('tasks', task['id'], task)
-        self.log('预约助手已就绪（桌面端）', 'success')
+        self.log('预约助手已就绪', 'success')
 
     def _migrate(self):
         previous = self.store.plans()
@@ -99,7 +99,12 @@ class DesktopService:
     def action(self, name, payload):
         if not isinstance(payload, dict):
             raise ValueError('操作参数不合法')
-        if name == 'booking_save':
+        if name == 'account_load':
+            account = self.vault.read()
+            return {'ok': True, 'account': {
+                'username': account.get('username', ''), 'real_name': account.get('real_name', ''),
+                'password': account.get('password', ''), 'remember': bool(account.get('password'))}}
+        elif name == 'booking_save':
             plan = Plan(**payload['config']).validate()
             target = self._date(payload['target_date'])
             self.store.put('settings', 'booking_v2', {'config': plan.to_dict(), 'target_date': target})
@@ -162,7 +167,7 @@ class DesktopService:
     def _save_account(self, values):
         username, real_name = str(values['username']).strip(), str(values['real_name']).strip()
         if not username or not real_name:
-            raise ValueError('请填写学号/工号和姓名')
+            raise ValueError('请填写学工号和姓名')
         old = self.vault.read()
         if old.get('username') != username:
             if any(not j.get('terminal') for j in self.store.all('orders')) or any(t['status'] in ACTIVE for t in self.store.all('tasks')):
@@ -173,7 +178,7 @@ class DesktopService:
         self.vault.update(username=username, real_name=real_name, password=password,
                           cookies=old.get('cookies', []) if old.get('username') == username else [])
         self.commands.put_nowait(('reload', {}))
-        self.log('本地设置已加密保存；没有上传账号信息', 'success')
+        self.log('本地设置已保存', 'success')
 
     def reload(self):
         account = self.vault.read()
@@ -188,10 +193,10 @@ class DesktopService:
         account = self.vault.read()
         if transient_password:
             account['password'] = transient_password
-        self.log('官方登录窗口已打开，请完成登录和验证码' if interactive else '正在使用本地凭据刷新登录')
+        self.log('正在打开官方登录窗口' if interactive else '正在使用本地凭据刷新登录')
         def work():
             try:
-                self.login_results.put(('ok', sign_in(account, interactive=interactive)))
+                self.login_results.put(('ok', sign_in(account, interactive=interactive, progress=self.log)))
             except Exception as exc:
                 # Never expose Playwright's raw exceptions: they can include filled values.
                 kind = type(exc).__name__

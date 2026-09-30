@@ -7,8 +7,49 @@ from .api import INDEX, LoginRequired
 
 LOGIN = 'https://authserver.szu.edu.cn/authserver/login?service=' + quote(INDEX, safe='')
 
+def prepare_login(page, account, progress=lambda message: None):
+    """Fill the visible official form and submit once when no captcha is pending."""
+    url = urlparse(page.url)
+    if url.scheme != 'https' or url.hostname != 'authserver.szu.edu.cn':
+        return 'other_origin'
+    usernames = page.locator('input#username:visible')
+    passwords = page.locator('input#password:visible')
+    try:
+        usernames.first.wait_for(state='visible', timeout=8000)
+        passwords.first.wait_for(state='visible', timeout=8000)
+    except Exception:
+        progress('请在官方窗口选择账号密码登录并完成登录')
+        return 'manual'
+    if not usernames.count() or not passwords.count():
+        progress('请在官方窗口选择账号密码登录并完成登录')
+        return 'manual'
+    usernames.first.fill(account.get('username', ''))
+    password = account.get('password')
+    if not password:
+        progress('没有保存登录密码，请在官方窗口输入密码并登录')
+        return 'manual'
+    passwords.first.fill(password)
+    # The school's username blur can asynchronously make its captcha field visible.
+    passwords.first.focus()
+    page.wait_for_timeout(800)
+    url = urlparse(page.url)
+    if url.scheme != 'https' or url.hostname != 'authserver.szu.edu.cn':
+        return 'other_origin'
+    captcha = page.locator(
+        'input[name*="captcha" i]:visible, input[id*="captcha" i]:visible, '
+        'input[name*="verifycode" i]:visible, input[id*="verifycode" i]:visible, '
+        'input[name*="yzm" i]:visible, input[id*="yzm" i]:visible')
+    if any(not captcha.nth(i).input_value().strip() for i in range(captcha.count())):
+        progress('账号密码已填写；学校要求验证码，请完成后点击登录')
+        return 'captcha'
+    if not account.get('username'):
+        progress('请在官方窗口填写账号并登录')
+        return 'manual'
+    passwords.first.press('Enter')
+    progress('账号密码已填写并提交，正在等待学校登录结果')
+    return 'submitted'
 
-def sign_in(account, interactive=True):
+def sign_in(account, interactive=True, progress=lambda message: None):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as runtime:
         try:
@@ -21,22 +62,9 @@ def sign_in(account, interactive=True):
             context = browser.new_context()
             page = context.new_page()
             page.goto(LOGIN, wait_until='domcontentloaded', timeout=30000)
-            # Enter saved secrets only on the exact official HTTPS login origin.
-            url = urlparse(page.url)
-            if url.scheme == 'https' and url.hostname == 'authserver.szu.edu.cn':
-                # The CAS page contains several tabs/forms with duplicate IDs.
-                # Fill only the visible, first matching field; strict locators
-                # otherwise abort before the user can complete captcha.
-                usernames = page.locator('input#username:visible')
-                passwords = page.locator('input#password:visible')
-                if usernames.count():
-                    usernames.first.fill(account.get('username', ''))
-                if account.get('password') and passwords.count():
-                    passwords.first.fill(account['password'])
-                if not interactive:
-                    # No captcha solver; a failed login is surfaced for manual completion.
-                    if passwords.count():
-                        passwords.first.press('Enter')
+            status = prepare_login(page, account, progress)
+            if status == 'captcha' and not interactive:
+                raise LoginRequired('学校要求验证码，请打开官方登录窗口完成')
             deadline = time.monotonic() + (180 if interactive else 25)
             while time.monotonic() < deadline:
                 if page.is_closed():

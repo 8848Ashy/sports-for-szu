@@ -2,7 +2,7 @@
 
 Windows 独立桌面预约助手，使用 Qt 原生窗口内嵌油猴式 HTML 界面，没有浏览器标签页或地址栏，支持羽毛球、一楼健身房等项目。无需 AI API，也没有云端账号服务器。
 
-## 下载便携版（普通用户看这里）
+## 下载便携版
 
 **[点击下载 Windows 便携版 v0.3.1](https://github.com/8848Ashy/sports-for-szu/releases/download/v0.3.1/SportsForSZU-v0.3.1-win64.zip)** · [所有发布版本](https://github.com/8848Ashy/sports-for-szu/releases)
 

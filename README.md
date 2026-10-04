@@ -2,6 +2,19 @@
 
 Windows 独立桌面预约助手，使用 Qt 原生窗口内嵌油猴式 HTML 界面，没有浏览器标签页或地址栏，支持羽毛球、一楼健身房等项目。无需 AI API，也没有云端账号服务器。
 
+## 下载便携版（普通用户看这里）
+
+**[点击下载 Windows 便携版 v0.3.1](https://github.com/8848Ashy/sports-for-szu/releases/download/v0.3.1/SportsForSZU-v0.3.1-win64.zip)** · [所有发布版本](https://github.com/8848Ashy/sports-for-szu/releases)
+
+1. 下载 `SportsForSZU-v0.3.1-win64.zip`，右键选择“全部解压”；不要直接在压缩包内运行。
+2. 打开解压后的 `SportsForSZU` 文件夹，双击 `SportsForSZU.exe`。
+3. 保留 EXE 旁边的 `_internal` 文件夹；不需要安装 Python、Node.js，也不用运行 `setup.cmd`。
+4. 阅读并同意启动须知，在“设置”保存本人账号，点击“打开官方登录”；验证码需手动完成。
+
+适用于 Windows 10/11 **64 位**，需要已安装 Microsoft Edge。更新前先从系统托盘退出旧版，再解压新版；本机账号和订单数据会保留。未签名程序可能提示未知发布者，请核实来源，不要关闭系统安全保护。
+
+**仓库绿色 Code → Download ZIP，以及 Releases 中的 Source code，下载的都是源码，不包含 EXE。** 手动进入 Releases 时，请展开 Assets，选择上面的便携版 ZIP。分享软件请分享此下载链接，不要分享自己的账号数据目录。
+
 **状态：0.3.1 试用版。离线测试、浏览器测试和原生窗口测试已覆盖主要流程，未使用真实账号进行预约、扣款、取消验收。学校内部接口可能变化，不能保证抢到、支付成功或自动退款。请先小额人工验证，不要直接无人值守运行。**
 
 这是独立编写的本地实现，并非 `Autur-wang/gym-bot` 的整包复制；没有附带任何个人 HAR 或账号配置。

@@ -27,7 +27,7 @@ class Engine:
     def confirm(self, key):
         with self.lock:
             job = self.store.get('orders', key)
-            if not job or job.get('cancel_attempt') or job.get('cancel_requested') or job.get('terminal'):
+            if not job or job.get('cancel_attempt') or job.get('cancel_requested') or job.get('terminal') or job.get('management_suspended'):
                 raise ValueError('订单已在取消或已结束，不能确认使用')
             if job['owner'] != owner_key(self.account['username']):
                 raise ValueError('请切回创建订单的账号')
@@ -37,7 +37,7 @@ class Engine:
     def request_cancel(self, key):
         with self.lock:
             job = self.store.get('orders', key)
-            if not job or job.get('terminal') or job['owner'] != owner_key(self.account['username']):
+            if not job or job.get('terminal') or job.get('management_suspended') or job['owner'] != owner_key(self.account['username']):
                 raise ValueError('订单不可操作或账号不匹配')
             self.store.patch_order(key, cancel_requested=True, message='等待核实并取消')
             self.last_review = 0
@@ -49,7 +49,7 @@ class Engine:
             if review:
                 self.last_review = self.clock().timestamp()
             for job in self.store.all('orders') if review else []:
-                if job['owner'] != owner_key(self.account['username']) or job.get('terminal'):
+                if job['owner'] != owner_key(self.account['username']) or job.get('terminal') or job.get('management_suspended'):
                     continue
                 try:
                     self.process(job)

@@ -97,6 +97,15 @@ class BrowserTests(ServiceFixture, unittest.TestCase):
                 self.service.engine.tick(run_schedules=False)
                 self.assertEqual(self.api.cancel_calls, 1)
 
+                page.locator('#settings').click()
+                page.locator('#account-form input[name="username"]').fill('other-test-user')
+                page.locator('#account-form button[type="submit"]').click()
+                expect(page.locator('#user-name')).to_contain_text('other-test-user')
+                page.locator('#settings-dialog [data-close]').click()
+                expect(page.locator('#orders-list')).to_contain_text('之前账号的记录（只读）')
+                expect(page.locator('#orders-list [data-order-action]')).to_have_count(0)
+                page.screenshot(path=str(output / 'ui-previous-account.png'))
+
                 page.locator('#theme').click()
                 page.screenshot(path=str(output / 'ui-dark.png'))
                 self.assertEqual(page.locator('html').get_attribute('data-theme'), 'dark')

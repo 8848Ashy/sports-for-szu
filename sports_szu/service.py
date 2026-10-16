@@ -24,6 +24,7 @@ class DesktopService:
         self.booking_stop = threading.Event()
         self.engine = None
         self.login_busy = False
+        self.account_generation = uuid.uuid4().hex
         self.login_results = queue.Queue()
         self.logs = []
         self.serial = 0
@@ -92,7 +93,7 @@ class DesktopService:
                     'booking': self.store.get('settings', 'booking_v2'), 'care': self.store.get('settings', 'care_v2'),
                     'daily_limit': self.store.get('settings', 'daily_limit', 6000), 'schedules': schedules,
                     'tasks': [t for t in self.store.all('tasks') if t.get('owner') == own][-40:],
-                    'orders': [j for j in self.store.all('orders') if j.get('owner') == own],
+                    'orders': [{**j, 'previous_account': j.get('owner') != own or bool(j.get('management_suspended'))} for j in self.store.all('orders')],
                     'logs': copy.deepcopy(self.logs),
                     'sports': {key: value[0] for key, value in SPORTS.items()}, 'venues': VENUES}
 
@@ -165,13 +166,38 @@ class DesktopService:
         return datetime.strptime(value, '%Y-%m-%d').date().isoformat()
 
     def _save_account(self, values):
+        # Wait for any in-flight financial request; never change its identity mid-request.
+        with self.lock:
+            self._save_account_locked(values)
+
+    def _save_account_locked(self, values):
         username, real_name = str(values['username']).strip(), str(values['real_name']).strip()
         if not username or not real_name:
             raise ValueError('请填写学工号和姓名')
         old = self.vault.read()
         if old.get('username') != username:
-            if any(not j.get('terminal') for j in self.store.all('orders')) or any(t['status'] in ACTIVE for t in self.store.all('tasks')):
-                raise ValueError('仍有托管订单或预约任务，请先处理后再切换账号')
+            self.account_generation = uuid.uuid4().hex
+            self.login_busy = False
+            self.engine = None
+            self.balance_cents = None
+            self.connection = '账号已切换，请重新登录'
+            self.next_login_attempt = 0
+            for job in self.store.all('orders'):
+                self.store.patch_order(job['id'], management_suspended=True)
+            while True:
+                try:
+                    self.commands.get_nowait()
+                except queue.Empty:
+                    break
+            for task in self.store.all('tasks'):
+                if task['status'] in ACTIVE:
+                    task.update(status='stopped', message='切换账号后已停止')
+                    self.store.put('tasks', task['id'], task)
+            schedules = self.store.get('settings', 'schedules_v2', [])
+            for schedule in schedules:
+                schedule['enabled'] = False
+            self.store.put('settings', 'schedules_v2', schedules)
+            self.log('账号已切换；旧账号记录仅供查看、不再托管，原定时已暂停。旧订单请到官网处理', 'warning')
         password = ''
         if values.get('remember'):
             password = str(values.get('password') or (old.get('password', '') if old.get('username') == username else ''))
@@ -190,13 +216,15 @@ class DesktopService:
         if self.login_busy:
             return
         self.login_busy = True
+        generation = self.account_generation
         account = self.vault.read()
         if transient_password:
             account['password'] = transient_password
         self.log('正在打开官方登录窗口' if interactive else '正在使用本地凭据刷新登录')
         def work():
             try:
-                self.login_results.put(('ok', sign_in(account, interactive=interactive, progress=self.log)))
+                self.login_results.put((generation, 'ok', sign_in(account, interactive=interactive,
+                    progress=lambda message: self.log(message) if generation == self.account_generation else None)))
             except Exception as exc:
                 # Never expose Playwright's raw exceptions: they can include filled values.
                 kind = type(exc).__name__
@@ -205,7 +233,7 @@ class DesktopService:
                     text = '登录表单出现多个匹配项，请手动填写后重试'
                 elif 'Timeout' in kind or 'timeout' in str(exc).lower():
                     text = '登录页面等待超时，请检查学校网站连接后重试'
-                self.login_results.put(('error', f'{text}（{kind}）'))
+                self.login_results.put((generation, 'error', f'{text}（{kind}）'))
         threading.Thread(target=work, daemon=True, name='official-login').start()
 
     def _login_expired(self):
@@ -334,7 +362,7 @@ class DesktopService:
                 raise ValueError('请先登录')
             with self.engine.lock:
                 job = self.store.get('orders', payload['id'])
-                if not job or job['owner'] != owner_key(self.engine.account['username']) or job.get('terminal'):
+                if not job or job['owner'] != owner_key(self.engine.account['username']) or job.get('terminal') or job.get('management_suspended'):
                     raise ValueError('订单已结束或不属于当前账号')
                 if name == 'order_confirm':
                     self.engine.confirm(job['id'])
@@ -356,11 +384,17 @@ class DesktopService:
             self.next_balance_check = 0
 
     def step(self):
+        with self.lock:
+            self._step_locked()
+
+    def _step_locked(self):
         while True:
             try:
-                status, data = self.login_results.get_nowait()
+                generation, status, data = self.login_results.get_nowait()
             except queue.Empty:
                 break
+            if generation != self.account_generation:
+                continue
             self.login_busy = False
             if status == 'ok':
                 self.vault.update(cookies=data)

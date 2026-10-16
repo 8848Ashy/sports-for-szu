@@ -7,6 +7,8 @@ import threading
 import unittest
 import requests
 from sports_szu.engine import Engine
+from sports_szu.engine import owner_key
+from unittest.mock import Mock
 from sports_szu.models import Plan, SHANGHAI
 from sports_szu.scheduling import Schedule
 from sports_szu.service import DesktopService
@@ -43,6 +45,52 @@ class ServiceFixture:
 
 
 class ServiceTests(ServiceFixture, unittest.TestCase):
+
+    def test_switch_account_stops_tasks_and_clears_session(self):
+        self.service.create_task(Plan('p').to_dict(), '2026-10-06')
+        self.service.action('schedule_save', Schedule('s', '旧定时', Plan('p').to_dict(), start_date='2026-10-05').to_dict())
+        self.store.put('orders', 'old-order', {'id': 'old-order', 'owner': 'old-owner', 'terminal': False})
+        generation = self.service.account_generation
+        self.service.login_busy = True
+        self.service.balance_cents = 1000
+        self.service.action('account_save', {'username': 'new-user', 'real_name': '新用户', 'remember': True, 'password': ''})
+        self.assertEqual(self.vault.read()['cookies'], [])
+        self.assertEqual(self.vault.read()['password'], '')
+        self.assertIsNone(self.service.engine)
+        self.assertIsNone(self.service.balance_cents)
+        self.assertFalse(self.service.login_busy)
+        self.assertEqual(self.store.all('tasks')[0]['status'], 'stopped')
+        self.assertFalse(self.store.get('settings', 'schedules_v2')[0]['enabled'])
+        self.assertTrue(self.service.snapshot()['orders'][0]['previous_account'])
+        self.service.login_results.put((generation, 'ok', [{'name': 'old-session'}]))
+        self.service.step()
+        self.assertEqual(self.vault.read()['cookies'], [])
+
+    def test_same_account_preserves_saved_password_and_cookie(self):
+        before = self.vault.read()
+        self.service.action('account_save', {'username': before['username'], 'real_name': '新姓名', 'remember': True, 'password': ''})
+        self.assertEqual(self.vault.read()['cookies'], before['cookies'])
+        self.assertEqual(self.vault.read()['password'], before['password'])
+
+    def test_switch_back_does_not_resume_old_order_management(self):
+        self.store.put('orders', 'old-order', {'id': 'old-order', 'owner': owner_key('test-user'), 'terminal': False})
+        for username in ('new-user', 'test-user'):
+            self.service.action('account_save', {'username': username, 'real_name': '测试用户', 'remember': False})
+        engine = Engine(self.store, self.api, self.vault.read(), clock=lambda: self.moment)
+        engine.process = Mock()
+        engine.tick(run_schedules=False)
+        engine.process.assert_not_called()
+        self.assertTrue(self.service.snapshot()['orders'][0]['previous_account'])
+        with self.assertRaises(ValueError):
+            engine.request_cancel('old-order')
+
+    def test_stale_login_does_not_clear_new_login_busy(self):
+        self.service.login_busy = True
+        self.service.login_results.put(('outdated-generation', 'ok', [{'name': 'old-session'}]))
+        self.service.engine = None
+        self.service.step()
+        self.assertTrue(self.service.login_busy)
+        self.assertEqual(self.vault.read()['cookies'][0]['value'], 'SYNTHETIC-COOKIE')
 
     def test_blank_then_released_room_books_automatically(self):
         plan = Plan('p', auto_pay=False, slots=['19:00-20:00'])

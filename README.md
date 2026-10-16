@@ -4,9 +4,9 @@ Windows 独立桌面预约助手，使用 Qt 原生窗口内嵌油猴式 HTML �
 
 ## 下载便携版
 
-**[点击下载 Windows 便携版 v0.3.1](https://github.com/8848Ashy/sports-for-szu/releases/download/v0.3.1/SportsForSZU-v0.3.1-win64.zip)** · [所有发布版本](https://github.com/8848Ashy/sports-for-szu/releases)
+**[点击下载 Windows 便携版 v0.3.2](https://github.com/8848Ashy/sports-for-szu/releases/download/v0.3.2/SportsForSZU-v0.3.2-win64.zip)** · [所有发布版本](https://github.com/8848Ashy/sports-for-szu/releases)
 
-1. 下载 `SportsForSZU-v0.3.1-win64.zip`，右键选择“全部解压”；不要直接在压缩包内运行。
+1. 下载 `SportsForSZU-v0.3.2-win64.zip`，右键选择“全部解压”；不要直接在压缩包内运行。
 2. 打开解压后的 `SportsForSZU` 文件夹，双击 `SportsForSZU.exe`。
 3. 保留 EXE 旁边的 `_internal` 文件夹；不需要安装 Python、Node.js，也不用运行 `setup.cmd`。
 4. 阅读并同意启动须知，在“设置”保存本人账号，点击“打开官方登录”；验证码需手动完成。
@@ -15,7 +15,7 @@ Windows 独立桌面预约助手，使用 Qt 原生窗口内嵌油猴式 HTML �
 
 **仓库绿色 Code → Download ZIP，以及 Releases 中的 Source code，下载的都是源码，不包含 EXE。** 手动进入 Releases 时，请展开 Assets，选择上面的便携版 ZIP。分享软件请分享此下载链接，不要分享自己的账号数据目录。
 
-**状态：0.3.1 试用版。离线测试、浏览器测试和原生窗口测试已覆盖主要流程，未使用真实账号进行预约、扣款、取消验收。学校内部接口可能变化，不能保证抢到、支付成功或自动退款。请先小额人工验证，不要直接无人值守运行。**
+**状态：0.3.2 试用版。离线测试、浏览器测试和原生窗口测试已覆盖主要流程，未使用真实账号进行预约、扣款、取消验收。学校内部接口可能变化，不能保证抢到、支付成功或自动退款。请先小额人工验证，不要直接无人值守运行。**
 
 这是独立编写的本地实现，并非 `Autur-wang/gym-bot` 的整包复制；没有附带任何个人 HAR 或账号配置。
 
@@ -57,6 +57,7 @@ Windows 独立桌面预约助手，使用 Qt 原生窗口内嵌油猴式 HTML �
 
 ## 使用与安全说明
 
+- 可直接切换账号，不受已有订单限制；原定时暂停、预约任务停止、旧 Cookie 清除。旧订单显示“之前账号的记录”，只读且不再自动付款或取消，切回也不自动恢复；请本人到学校官网处理旧订单。软件不会因换号替你取消真实预约。
 - 正常保持软件运行、电脑清醒且联网。关闭窗口收起到托盘；真正退出、睡眠或关机会停止工作。本版本不修改系统电源或启动设置。
 - 托盘不可用时关闭窗口仅最小化。退出会显示未结束订单数量，等待当前请求完成后退出。
 - 取消预约使用界面内二次确认，不依赖浏览器弹窗；“已排队”不是成功，最终以订单状态及学校记录为准。
@@ -93,7 +94,7 @@ Windows 独立桌面预约助手，使用 Qt 原生窗口内嵌油猴式 HTML �
 - `window.py`：Qt 原生窗口、系统托盘、启动须知与退出管理；`terms.py`：须知文本与版本。
 
 界面测试：先安装 Chromium，再在 PowerShell 设置 `$env:SZU_TEST_BROWSER='1'`，使用虚拟环境运行测试。测试使用虚构账号和模拟接口，不操作真实订单。
-原生窗口测试另设 `$env:SZU_TEST_NATIVE='1'`。构建便携版运行 `build.cmd`，输出在用户下载目录 `SportsForSZU-v0.3.1/SportsForSZU/`（短路径避免 Windows 文件名限制）。便携 EXE 可使用 `--smoke-test` 验证打包窗口：只创建临时空数据，不读取真实账号、不运行预约后台。
+原生窗口测试另设 `$env:SZU_TEST_NATIVE='1'`。构建便携版运行 `build.cmd`，输出在用户下载目录 `SportsForSZU-v0.3.2/SportsForSZU/`（短路径避免 Windows 文件名限制）。便携 EXE 可使用 `--smoke-test` 验证打包窗口：只创建临时空数据，不读取真实账号、不运行预约后台。
 
 牛肉面图标经内置 image_gen 从用户照片卡通化生成，背景已移除；提示词与 PNG/ICO 在 `sports_szu/assets/`。第三方许可证见 [组件说明](THIRD_PARTY.md)。
 

@@ -24,7 +24,7 @@ def main():
             return
         store = Store(directory / 'state.sqlite')
         store.put('settings', 'terms_acceptance', {'version': TERMS_VERSION, 'at': now().isoformat()})
-        service = DesktopService(store, Vault(directory))
+        service = DesktopService(store, Vault(directory), log_directory=directory / 'logs')
         server = UIServer(service)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         worker = threading.Thread(target=service.run, name='booking-worker', daemon=True)
@@ -51,5 +51,7 @@ def main():
             app.processEvents()
         if store and (not worker or not worker.is_alive()):
             store.close()
+            if service and service.file_log:
+                service.file_log.close()
         if guard:
             guard.close()

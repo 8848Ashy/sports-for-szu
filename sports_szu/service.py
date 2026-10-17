@@ -11,12 +11,13 @@ from .engine import Engine, owner_key
 from .login import sign_in
 from .models import Plan, SHANGHAI, now
 from .scheduling import Schedule
+from .safe_log import make_handler, write as write_log
 
 ACTIVE = ('queued', 'running', 'waiting_login', 'paused_restart')
 
 
 class DesktopService:
-    def __init__(self, store, vault, clock=now):
+    def __init__(self, store, vault, clock=now, log_directory=None):
         self.store, self.vault, self.clock = store, vault, clock
         self.lock = threading.RLock()
         self.commands = queue.Queue(maxsize=64)
@@ -31,6 +32,10 @@ class DesktopService:
         self.connection = '尚未验证登录'
         self.balance_cents = None
         self.next_login_attempt = 0
+        self.login_failures = 0
+        self.session_invalid = False
+        self.preflight = {}
+        self.file_log = make_handler(log_directory) if log_directory else None
         self.next_balance_check = 0
         self.next_care_check = 0
         self.notification = lambda text: None
@@ -68,6 +73,8 @@ class DesktopService:
             self.logs.append({'id': self.serial, 'time': self.clock().strftime('%H:%M:%S'),
                               'message': message, 'level': level})
             self.logs = self.logs[-150:]
+            if self.file_log:
+                write_log(self.file_log, self.clock(), level, message)
         if notify:
             self.notification(message)
 
@@ -182,6 +189,9 @@ class DesktopService:
             self.balance_cents = None
             self.connection = '账号已切换，请重新登录'
             self.next_login_attempt = 0
+            self.login_failures = 0
+            self.session_invalid = False
+            self.preflight.clear()
             for job in self.store.all('orders'):
                 self.store.patch_order(job['id'], management_suspended=True)
             while True:
@@ -211,6 +221,8 @@ class DesktopService:
         self.engine = Engine(self.store, SchoolAPI(account['cookies']), account, self.notify, self.clock) if account.get('cookies') else None
         self.connection = '已保存登录，等待核验' if self.engine else '请登录'
         self.next_balance_check = 0
+        if self.engine:
+            self.engine.api.trace = self.log
 
     def launch_login(self, interactive, transient_password=''):
         if self.login_busy:
@@ -237,14 +249,13 @@ class DesktopService:
         threading.Thread(target=work, daemon=True, name='official-login').start()
 
     def _login_expired(self):
+        self.session_invalid = True
         self.connection = '登录失效，请重新登录'
         account = self.vault.read()
-        day = self.clock().date().isoformat()
-        attempts = self.store.get('settings', 'login_attempts', {})
-        count = attempts.get('count', 0) if attempts.get('date') == day else 0
-        if account.get('password') and count < 3 and self.clock().timestamp() >= self.next_login_attempt and not self.login_busy:
-            self.next_login_attempt = self.clock().timestamp() + 600
-            self.store.put('settings', 'login_attempts', {'date': day, 'count': count + 1})
+        if account.get('password') and self.clock().timestamp() >= self.next_login_attempt and not self.login_busy:
+            delay = min(600, 60 * 2 ** min(self.login_failures, 4))
+            self.next_login_attempt = self.clock().timestamp() + delay
+            self.log(f'登录失效：启动自动重登；若失败至少等待 {delay} 秒再试（无每日次数上限）', 'warning')
             self.launch_login(False)
 
     def create_task(self, config, target, identity=None, source='manual', duration=0, resume=False):
@@ -268,8 +279,46 @@ class DesktopService:
         self.booking_stop.clear()
 
     def check_schedules(self):
+        today = self.clock().date().isoformat()
+        self.preflight = {key: value for key, value in self.preflight.items() if key[2].startswith(today)}
         for data in self.store.get('settings', 'schedules_v2', []):
             schedule = Schedule(**data)
+            planned = schedule.fire_on(self.clock().date())
+            if planned:
+                seconds = (planned - self.clock()).total_seconds()
+                key = (self.account_generation, schedule.id, planned.isoformat())
+                previous = self.preflight.get(key, {})
+                if seconds <= -schedule.catchup_seconds and previous and not previous.get('ok') and not previous.get('missed'):
+                    self.log(f'[定时 {schedule.name}] 已超过补执行窗口，登录或网络预检未通过，本次未创建预约任务；请人工检查', 'warning', True)
+                    previous['missed'] = True
+                if -schedule.catchup_seconds < seconds <= 300:
+                    check = self.preflight.get(key, {})
+                    # Check five minutes before, again in the last 30 seconds,
+                    # and on late startup; failed checks are rate-limited.
+                    phase = 'final' if seconds <= 30 else 'early'
+                    fresh = check.get('ok') and check.get('phase') == phase
+                    if not fresh and self.clock().timestamp() >= check.get('retry_at', 0):
+                        self.log(f'[定时 {schedule.name}] 登录预检开始（距执行 {max(0, int(seconds))} 秒）')
+                        ok = False
+                        try:
+                            if not self.engine:
+                                raise LoginRequired('尚无登录会话')
+                            self.engine.api.orders()
+                            ok = True
+                            self.session_invalid = False
+                            self.connection = '已登录'
+                            self.log(f'[定时 {schedule.name}] 登录预检通过：预约列表接口可用', 'success')
+                        except LoginRequired:
+                            self.log(f'[定时 {schedule.name}] 登录预检失败：需要重新登录；尚未提交预约', 'warning')
+                            self._login_expired()
+                            if not self.vault.read().get('password'):
+                                self.log('未保存密码，无法自动重登；请打开官方登录窗口', 'warning', True)
+                        except ApiError:
+                            self.log(f'[定时 {schedule.name}] 登录预检未通过：网络或接口异常，30秒后重查', 'warning')
+                        self.preflight[key] = {'ok': ok, 'phase': phase, 'retry_at': self.clock().timestamp() + 30}
+                    result = self.preflight.get(key, {})
+                    if seconds <= 0 and not (result.get('ok') and result.get('phase') == 'final'):
+                        continue
             fire = schedule.due(self.clock())
             if fire:
                 self.create_task(schedule.config, schedule.booking_date(fire),
@@ -277,7 +326,7 @@ class DesktopService:
                                  schedule.duration_minutes, schedule.resume_on_restart)
 
     def poll_task(self):
-        if not self.engine or self.booking_stop.is_set():
+        if not self.engine or self.session_invalid or self.booking_stop.is_set():
             return
         tasks = [t for t in self.store.all('tasks') if t['status'] in ('queued', 'running', 'waiting_login')
                  and t['owner'] == owner_key(self.engine.account['username'])]
@@ -304,8 +353,11 @@ class DesktopService:
                     break
                 if slot in task['completed']:
                     continue
+                started = time.monotonic()
+                label = f'[{task["source"]} · {SPORTS[plan.sport][0]} {task["target_date"]} {slot} 第{task["attempts"]}轮]'
                 self.engine.book(plan, slot, task['target_date'], self.booking_stop.is_set)
                 run = self.store.get('runs', self.engine.run_key(plan, task['target_date'], slot), {})
+                self.log(f'{label} 耗时 {time.monotonic() - started:.2f}s；状态 {run.get("status", "未发出请求")}；候选 {run.get("candidate_count", "未知")}；{run.get("reason", "等待核实")}')
                 if run.get('status') == 'done' or run.get('reason') == '该时段已有预约':
                     task['completed'].append(slot)
                     self.log(f'{slot} 已预约（{len(task["completed"])}/{max_bookings}）', 'success')
@@ -318,9 +370,11 @@ class DesktopService:
             elif task['status'] == 'running':
                 task['message'] = '等待空场，继续查询…'
         except LoginRequired:
+            self.log(f'[{SPORTS[plan.sport][0]} 第{task["attempts"]}轮] 查询发现登录失效，暂停预约并尝试重登', 'warning')
             task.update(status='waiting_login', message='等待重新登录')
             self._login_expired()
         except ApiError:
+            self.log(f'[{SPORTS[plan.sport][0]} 第{task["attempts"]}轮] 网络或接口查询失败；本轮不是成功空场查询', 'warning')
             task['message'] = '本轮查询失败，将按间隔重试'
             if task['attempts'] <= 3 or task['attempts'] % 20 == 0:
                 self.log(task['message'], 'warning')
@@ -399,9 +453,14 @@ class DesktopService:
             if status == 'ok':
                 self.vault.update(cookies=data)
                 self.reload()
+                self.session_invalid = False
+                self.login_failures = 0
                 self.log('登录已完成，Cookie 已加密保存', 'success')
             else:
+                self.login_failures += 1
                 self.log(data, 'error', True)
+        if self.session_invalid and not self.login_busy:
+            self._login_expired()
         try:
             name, payload = self.commands.get_nowait()
             self.command(name, payload)

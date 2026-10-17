@@ -1,6 +1,7 @@
 """Fixed-origin API adapter. No redirects, raw response logging or external payments."""
 import secrets
 import re
+import time
 from .catalog import SPORTS, booking_type, matches_venue, rank_room
 
 ORIGIN = 'https://ehall.szu.edu.cn'
@@ -21,10 +22,12 @@ class Ambiguous(ApiError):
 
 
 class SchoolAPI:
+    trace = staticmethod(lambda message: None)
     def __init__(self, cookies):
         import requests
         self.session = requests.Session()
         self.timeout = 10
+        self.trace = lambda message: None
         self.session.trust_env = False  # No ambient proxy/netrc credentials.
         self.session.headers.update({'Referer': INDEX, 'Origin': ORIGIN,
                                      'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'})
@@ -39,8 +42,10 @@ class SchoolAPI:
         import requests
         if not path.endswith('.do') or '..' in path or ':' in path or path.startswith('/'):
             raise ValueError('接口地址不合法')
+        started = time.monotonic()
         try:
             response = self.session.post(BASE + path, data=data or {}, timeout=(5, self.timeout), allow_redirects=False)
+            self.trace(f'接口 {path} HTTP {response.status_code} 耗时 {time.monotonic() - started:.2f}s')
             if response.status_code in (301, 302, 303, 307, 308, 401, 403):
                 raise LoginRequired('登录失效，请重新登录学校网站')
             response.raise_for_status()
@@ -51,6 +56,7 @@ class SchoolAPI:
                 raise ValueError()
             return result
         except (requests.RequestException, ValueError) as exc:
+            self.trace(f'接口 {path} 失败类别 {type(exc).__name__} 耗时 {time.monotonic() - started:.2f}s；未记录请求参数或响应正文')
             kind = Ambiguous if write else ApiError
             raise kind('网络或接口异常；写操作须核实结果，不自动重发') from exc
 
@@ -101,6 +107,7 @@ class SchoolAPI:
             if not available:
                 continue
             candidates.append(row)
+        self.trace(f'场地筛选 {plan.sport} {date} {slot}：原始 {len(rows)} 条，匹配且可预约 {len(candidates)} 条')
         return sorted(candidates, key=lambda r: rank_room(plan, r))
 
     def book(self, plan, date, slot, room, account):

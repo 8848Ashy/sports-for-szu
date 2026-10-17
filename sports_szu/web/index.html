@@ -24,6 +24,7 @@
       <p class="quiet start-hint">持续查询空场，找到后自动预约。点上方信息即可修改。</p>
       <div id="resume-tasks"></div>
       <div class="card log-card"><div class="log-heading"><span id="run-state">[ 就绪 ] 等待开始…</span><button id="clear-log" class="text-button muted">清空</button></div><div id="logs" role="log" aria-label="运行日志"></div></div>
+      <details class="card"><summary>查看文件日志</summary><p class="muted">按 Win+R，输入 %LOCALAPPDATA%\SportsForSZU\logs，打开 runtime.log。重启保留，自动轮转；界面清空不会删除文件。分享前请遮去订单等个人信息。</p></details>
       <details class="card tips"><summary><span data-icon="bulb"></span>预约小贴士<span class="chevron">⌄</span></summary><div class="details-content">开始预约与油猴脚本一致：按间隔查询，发现空场后自动下单，最多完成两个时段。抢满、达到重试上限或点击停止时结束。定时预约到点启动同一流程。<br><br>电脑需保持联网和清醒。关闭窗口后可从系统托盘重新打开。</div></details>
       <div class="connection"><span class="dot"></span><span id="connection">正在连接本地助手…</span><span class="balance" id="balance-small"></span></div>
     </section>

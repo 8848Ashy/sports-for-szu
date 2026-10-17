@@ -9,6 +9,7 @@ import requests
 from sports_szu.engine import Engine
 from sports_szu.engine import owner_key
 from unittest.mock import Mock
+from sports_szu.api import LoginRequired, ApiError
 from sports_szu.models import Plan, SHANGHAI
 from sports_szu.scheduling import Schedule
 from sports_szu.service import DesktopService
@@ -45,6 +46,85 @@ class ServiceFixture:
 
 
 class ServiceTests(ServiceFixture, unittest.TestCase):
+
+    def test_preflight_checks_early_and_final_but_does_not_book_early(self):
+        self.service.action('schedule_save', Schedule('s', '预检', Plan('p').to_dict(), start_date='2026-10-05', weekdays=[0]).to_dict())
+        original = self.api.orders
+        self.api.orders = Mock(side_effect=original)
+        self.moment = self.moment.replace(hour=12, minute=25)
+        self.service.check_schedules()
+        self.assertEqual(self.api.orders.call_count, 1)
+        self.assertEqual(self.store.all('tasks'), [])
+        self.moment = self.moment.replace(minute=29, second=40)
+        self.service.check_schedules()
+        self.assertEqual(self.api.orders.call_count, 2)
+        self.moment = self.moment.replace(minute=30, second=0)
+        self.service.check_schedules()
+        self.assertEqual(len(self.store.all('tasks')), 1)
+        self.assertEqual(self.api.book_calls, 0)
+
+    def test_invalid_preflight_blocks_task_and_rechecks_after_login(self):
+        self.service.action('schedule_save', Schedule('s', '预检', Plan('p').to_dict(), start_date='2026-10-05', weekdays=[0]).to_dict())
+        original = self.api.orders
+        self.api.orders = Mock(side_effect=LoginRequired())
+        self.service.launch_login = Mock()
+        self.service.check_schedules()
+        self.assertEqual(self.store.all('tasks'), [])
+        self.service.launch_login.assert_called_once_with(False)
+        self.api.orders = original
+        self.moment += timedelta(seconds=31)
+        self.service.check_schedules()
+        self.assertFalse(self.service.session_invalid)
+        self.assertEqual(len(self.store.all('tasks')), 1)
+
+    def test_no_daily_login_limit_but_attempts_have_cooldown(self):
+        self.store.put('settings', 'login_attempts', {'date': self.moment.date().isoformat(), 'count': 100})
+        self.service.launch_login = Mock()
+        self.service._login_expired()
+        self.service._login_expired()
+        self.service.launch_login.assert_called_once_with(False)
+        self.moment += timedelta(seconds=61)
+        self.service._login_expired()
+        self.assertEqual(self.service.launch_login.call_count, 2)
+
+    def test_preflight_network_failure_does_not_create_task_or_force_login(self):
+        self.service.action('schedule_save', Schedule('s', '预检', Plan('p').to_dict(), start_date='2026-10-05', weekdays=[0]).to_dict())
+        self.api.orders = Mock(side_effect=ApiError())
+        self.service.launch_login = Mock()
+        self.service.check_schedules()
+        self.service.check_schedules()
+        self.assertEqual(self.api.orders.call_count, 1)
+        self.assertEqual(self.store.all('tasks'), [])
+        self.service.launch_login.assert_not_called()
+        self.moment += timedelta(minutes=4)
+        self.service.check_schedules()
+        self.assertTrue(any('已超过补执行窗口' in item['message'] for item in self.service.logs))
+
+    def test_log_file_rotation_is_bounded(self):
+        from sports_szu.safe_log import make_handler, write
+        directory = Path(self.temp.name) / 'rotation'
+        handler = make_handler(directory)
+        handler.maxBytes = 150
+        handler.backupCount = 2
+        for number in range(30):
+            write(handler, self.moment, 'info', f'查询记录{number}：无可预约场地')
+        handler.close()
+        self.assertLessEqual(len(list(directory.iterdir())), 3)
+        self.assertIn('查询记录29', (directory / 'runtime.log').read_text(encoding='utf-8'))
+
+    def test_file_logs_survive_service_restart_without_credentials(self):
+        directory = Path(self.temp.name) / 'logs'
+        service = DesktopService(self.store, self.vault, lambda: self.moment, log_directory=directory)
+        service.log('登录预检通过', 'success')
+        service.file_log.close()
+        content = (directory / 'runtime.log').read_text(encoding='utf-8')
+        self.assertIn('2026-10-05T12:30:00+08:00', content)
+        self.assertIn('登录预检通过', content)
+        self.assertNotIn('SYNTHETIC-PASSWORD', content)
+        self.assertNotIn('SYNTHETIC-COOKIE', content)
+        second = DesktopService(self.store, self.vault, lambda: self.moment, log_directory=directory)
+        second.file_log.close()
+        self.assertIn('登录预检通过', (directory / 'runtime.log').read_text(encoding='utf-8'))
 
     def test_switch_account_stops_tasks_and_clears_session(self):
         self.service.create_task(Plan('p').to_dict(), '2026-10-06')

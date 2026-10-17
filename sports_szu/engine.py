@@ -90,7 +90,8 @@ class Engine:
                     self.store.put('runs', key, {'id': key, 'status': 'stopped', 'reason': '该时段已有预约'})
                     return
         rooms = self.api.rooms(plan, date, slot)
-        record = {'id': key, 'status': 'waiting', 'last_try': moment.timestamp()}
+        record = {'id': key, 'status': 'waiting', 'last_try': moment.timestamp(),
+                  'candidate_count': len(rooms), 'reason': '无匹配的可预约场地' if not rooms else '发现候选场地'}
         self.store.put('runs', key, record)
         # Strict priority and serial requests; only explicit business rejection
         # permits trying the next court. An ambiguous write stops this time slot.
@@ -137,6 +138,8 @@ class Engine:
                 self.store.put('runs', key, record)
                 return
         record['status'] = 'waiting'
+        if rooms:
+            record['reason'] = '候选场地的预约均被学校业务规则拒绝，未生成订单'
         self.store.put('runs', key, record)
 
     @staticmethod

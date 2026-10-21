@@ -45,9 +45,17 @@ class Engine:
     def tick(self, run_schedules=True):
         with self.lock:
             # Outstanding orders always take precedence over making new ones.
-            review = self.clock().timestamp() - self.last_review >= 10
+            timestamp = self.clock().timestamp()
+            urgent = any(
+                not job.get('terminal') and not job.get('management_suspended') and (
+                    job.get('cancel_requested') or job.get('cancel_attempt') or job.get('pay_attempt') or
+                    (not job.get('confirmed') and abs((job.get('cancel_at') or
+                     job['start'] - job['cancel_minutes'] * 60) - timestamp) <= 120)
+                ) for job in self.store.all('orders'))
+            review_interval = 10 if urgent else 60
+            review = timestamp - self.last_review >= review_interval
             if review:
-                self.last_review = self.clock().timestamp()
+                self.last_review = timestamp
             for job in self.store.all('orders') if review else []:
                 if job['owner'] != owner_key(self.account['username']) or job.get('terminal') or job.get('management_suspended'):
                     continue
@@ -73,7 +81,34 @@ class Engine:
         # Dedupe across overlapping plans as well as application restarts.
         key = self.run_key(plan, date, slot)
         run = self.store.get('runs', key)
-        if run and run.get('status') in ('submitted', 'unknown', 'done', 'stopped'):
+        if run and run.get('status') in ('submitted', 'unknown'):
+            return
+        if run and run.get('status') == 'done':
+            # A successful booking used to permanently block this date/slot,
+            # even after its order was later cancelled. Consult the authoritative
+            # school order state before deciding whether this slot can be retried.
+            old_order = self.store.get('orders', run.get('order_id')) if run.get('order_id') else None
+            if not old_order:
+                return
+            if not old_order.get('terminal'):
+                # Read status only here; don't let a retry probe trigger payment
+                # or cancellation as a side effect of process().
+                row = self.row(old_order)
+                if row.get('YYZT') == 'CG_QX':
+                    self.store.patch_order(old_order['id'], terminal=True,
+                                           message='已取消（网站已确认）')
+                elif row.get('YYZT') == 'CG_WC':
+                    self.store.patch_order(old_order['id'], terminal=True, message='已完成')
+                old_order = self.store.get('orders', old_order['id'])
+            if not old_order or not old_order.get('terminal') or not str(old_order.get('message', '')).startswith('已取消'):
+                return
+            run.update(status='waiting', reason='原订单已由学校确认取消，可重新蹲场')
+            self.store.put('runs', key, run)
+        # '该时段已有预约' is a snapshot, not a permanent completion. Check the
+        # live school order list again so a later confirmed cancellation can retry.
+        retry_existing_check = bool(run and run.get('status') == 'stopped'
+                                    and run.get('reason') == '该时段已有预约')
+        if run and run.get('status') in ('done', 'stopped') and not retry_existing_check:
             return
         if run and moment.timestamp() - run.get('last_try', 0) < plan.retry_interval:
             return
@@ -87,7 +122,7 @@ class Engine:
         for row in existing:
             if str(row.get('YYRGH')) == self.account['username'] and row.get('YYSF') == '预约人' and row.get('YYZT') == 'CG_YY':
                 if self.same_period(row.get('YYSJD', ''), date, slot):
-                    self.store.put('runs', key, {'id': key, 'status': 'stopped', 'reason': '该时段已有预约'})
+                    self.store.put('runs', key, {'id': key, 'status': 'stopped', 'last_try': moment.timestamp(), 'reason': '该时段已有预约'})
                     return
         rooms = self.api.rooms(plan, date, slot)
         record = {'id': key, 'status': 'waiting', 'last_try': moment.timestamp(),
@@ -123,6 +158,7 @@ class Engine:
                        'auto_pay': plan.auto_pay, 'confirmed': False, 'message': '预约成功，待核实订单'}
                 self.store.put('orders', order_id, job)
                 record.update(status='done', order_id=order_id)
+                record['reason'] = '预约成功，订单号已记录'
                 self.store.put('runs', key, record)
                 self.notify('新预约已生成，请在“我的场地”确认使用；未确认将按设置取消')
                 self.process(job)

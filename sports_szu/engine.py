@@ -52,7 +52,7 @@ class Engine:
                     (not job.get('confirmed') and abs((job.get('cancel_at') or
                      job['start'] - job['cancel_minutes'] * 60) - timestamp) <= 120)
                 ) for job in self.store.all('orders'))
-            review_interval = 10 if urgent else 60
+            review_interval = 10 if urgent else 300
             review = timestamp - self.last_review >= review_interval
             if review:
                 self.last_review = timestamp

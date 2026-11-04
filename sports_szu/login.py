@@ -82,6 +82,10 @@ def sign_in(account, interactive=True, progress=lambda message: None):
 
 
 def await_cookies(context):
-    # Do not persist CAS/authserver cookies or unrelated browser data.
-    return [c for c in context.cookies([INDEX])
+    # Do not restrict this to cookies matching INDEX.  The portal creates
+    # session/token cookies after the initial redirect (some use a different
+    # path), and those are required by the payment-token endpoint.  Still
+    # persist only the official ehall/szu app cookies; never keep CAS or other
+    # browsing cookies.
+    return [c for c in context.cookies()
             if c.get('domain', '').lstrip('.') in ('ehall.szu.edu.cn', 'szu.edu.cn')]

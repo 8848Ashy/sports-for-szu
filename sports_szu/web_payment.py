@@ -90,6 +90,14 @@ def pay_with_password(cookies, order_id, password, headless=True, trace=lambda m
                 trace('体育经费密码支付：登录会话已失效')
                 return '登录已失效'
             trace('体育经费密码支付：已打开预约记录，定位订单')
+            # The table is populated asynchronously.  Waiting for the order
+            # text avoids treating a still-empty grid as a payment failure.
+            order_text = page.get_by_text(str(order_id), exact=False).first
+            try:
+                order_text.wait_for(state='visible', timeout=15000)
+            except Exception:
+                trace('体育经费密码支付：订单列表未加载，未提交')
+                return '订单列表未加载；未提交付款'
             # Payment UI selectors vary by deployment; fail closed if the exact
             # order cannot be uniquely located rather than paying another row.
             rows = page.locator('tr').filter(has_text=str(order_id))
@@ -97,17 +105,59 @@ def pay_with_password(cookies, order_id, password, headless=True, trace=lambda m
                 trace('体育经费密码支付：无法唯一定位订单，未提交')
                 return '无法唯一定位订单；未提交付款'
             row = rows.first
-            pay_button = row.get_by_text('体育经费', exact=False)
-            if pay_button.count() != 1:
-                trace('体育经费密码支付：未找到体育经费支付入口，未提交')
-                return '找不到该订单的体育经费支付入口；未提交付款'
+            # Current SZU UI exposes only a row-level “未支付” link.  The
+            # sports-fund/campus-card buttons appear in the modal opened by it.
+            unpaid = row.locator('a').filter(has_text='未支付').first
+            if not _visible(unpaid):
+                trace('体育经费密码支付：订单没有未支付入口，未提交')
+                return '找不到该订单的未支付入口；未提交付款'
+            unpaid.click()
+            sports_button = page.get_by_text('(体育经费)支付', exact=True).first
+            try:
+                sports_button.wait_for(state='visible', timeout=8000)
+            except Exception:
+                # A few deployments omit the parentheses in the button text.
+                sports_button = page.get_by_text('体育经费', exact=False).first
+                if not _visible(sports_button):
+                    trace('体育经费密码支付：未打开支付方式弹窗，未提交')
+                    return '未打开支付方式弹窗；未提交付款'
+            trace('体育经费密码支付：已打开未支付订单，选择体育经费')
             # The school may open the payment panel in a new tab.
             before = list(context.pages)
-            pay_button.click()
+            try:
+                with page.expect_response(
+                    lambda response: response.url.endswith('/sportVenue/setYyinfoToMoney.do'),
+                    timeout=15000) as response_info:
+                    sports_button.click()
+                payment_response = response_info.value
+                try:
+                    payment_result = payment_response.json()
+                except Exception:
+                    payment_result = {}
+                safe_code = str(payment_result.get('code', ''))[:40]
+                safe_msg = str(payment_result.get('msg', ''))[:200]
+                trace(f'体育经费支付预处理 HTTP {payment_response.status} code={safe_code!r} msg={safe_msg!r}')
+                if safe_code != '0':
+                    return (f'学校拒绝体育经费支付预处理：{safe_msg or safe_code}；未提交付款')
+            except Exception as exc:
+                trace(f'体育经费支付预处理未返回结果：{type(exc).__name__}；未提交付款')
+                return '体育经费支付预处理失败；未提交付款'
             page.wait_for_timeout(1000)
             pages = [item for item in context.pages if item not in before]
             if pages:
                 page = pages[-1]
+            # A successful pre-processing response submits the official form
+            # to the university payment host.  Wait briefly for that navigation
+            # before looking for the password controls, and fail closed if the
+            # page goes somewhere unexpected.
+            try:
+                page.wait_for_url('**://olepay.szu.edu.cn/**', timeout=10000)
+            except Exception:
+                pass
+            payment_host = urlparse(page.url).hostname
+            if payment_host not in ('olepay.szu.edu.cn', 'ehall.szu.edu.cn'):
+                trace('体育经费密码支付：支付页面域名异常，未提交密码')
+                return '支付页面域名异常；未提交密码'
             trace('体育经费密码支付：已选择体育经费支付')
             if not _click_first(page, ['#btnNext', 'text=下一步', 'button:has-text("下一步")']):
                 trace('体育经费密码支付：未找到下一步，未提交')

@@ -174,7 +174,7 @@ $('#orders-list').onclick=async event=>{
   const button=event.target.closest('[data-order-action]');if(!button)return;
   const id=button.closest('[data-order]').dataset.order, action=button.dataset.orderAction;
   if(action==='cancel'&&!await askConfirmation('确定取消这笔预约吗？即使已确认使用，仍会提交取消。退款结果以学校系统为准。'))return;
-  if(action==='retry_pay'&&!await askConfirmation('按此订单的金额上限重新核验并尝试余额付款？'))return;
+  if(action==='retry_pay'&&!await askConfirmation('按此订单的金额上限重新核验自动付款？已保存支付密码时使用体育经费网页支付。'))return;
   if(action==='time'){const job=state.orders.find(j=>j.id===id),f=$('#order-time-form').elements;f.id.value=id;f.cancel_at.value=stamp(job.cancel_at||job.start-job.cancel_minutes*60).replace(' ','T');$('#order-dialog').showModal();return;}
   if(await act('order_'+action,{id}))toast(action==='cancel'?'取消请求已排队，请等待订单状态更新；这不代表学校已确认取消。':'操作已排队，请等待状态更新');
 };

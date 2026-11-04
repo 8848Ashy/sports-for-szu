@@ -439,7 +439,7 @@ class DesktopService:
                 elif name == 'order_retry_pay':
                     if job.get('pay_attempt') or job.get('cancel_attempt') or job.get('cancel_requested'):
                         raise ValueError('已发出付款或取消请求，请先到官网核实，不能重复提交')
-                    self.store.patch_order(job['id'], auto_pay=True, message='等待重新核验余额支付')
+                    self.store.patch_order(job['id'], auto_pay=True, message='等待重新核验自动付款')
                 self.engine.last_review = 0
         elif name == 'balance_refresh':
             self.next_balance_check = 0

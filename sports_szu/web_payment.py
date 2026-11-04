@@ -54,7 +54,7 @@ def _find_keyboard_buttons(page, password):
     return buttons
 
 
-def pay_with_password(cookies, order_id, password, headless=True):
+def pay_with_password(cookies, order_id, password, headless=True, trace=lambda message: None):
     """Attempt one official-page payment, returning a non-secret status string.
 
     This intentionally stops on ambiguous page structure or result. Callers must
@@ -64,7 +64,9 @@ def pay_with_password(cookies, order_id, password, headless=True):
 
     password = str(password or '')
     if not password.isdigit() or not 4 <= len(password) <= 12:
+        trace('体育经费密码支付：密码格式不支持，未提交')
         return '支付密码格式不支持；未提交付款'
+    trace('体育经费密码支付：启动官方支付页面')
     with sync_playwright() as runtime:
         options = {'channel': 'msedge'} if getattr(sys, 'frozen', False) else {}
         browser = runtime.chromium.launch(headless=headless, **options)
@@ -85,15 +87,19 @@ def pay_with_password(cookies, order_id, password, headless=True):
             page = context.new_page()
             page.goto(BOOKING_URL, wait_until='domcontentloaded', timeout=30000)
             if urlparse(page.url).hostname != 'ehall.szu.edu.cn':
+                trace('体育经费密码支付：登录会话已失效')
                 return '登录已失效'
+            trace('体育经费密码支付：已打开预约记录，定位订单')
             # Payment UI selectors vary by deployment; fail closed if the exact
             # order cannot be uniquely located rather than paying another row.
             rows = page.locator('tr').filter(has_text=str(order_id))
             if rows.count() != 1:
+                trace('体育经费密码支付：无法唯一定位订单，未提交')
                 return '无法唯一定位订单；未提交付款'
             row = rows.first
             pay_button = row.get_by_text('体育经费', exact=False)
             if pay_button.count() != 1:
+                trace('体育经费密码支付：未找到体育经费支付入口，未提交')
                 return '找不到该订单的体育经费支付入口；未提交付款'
             # The school may open the payment panel in a new tab.
             before = list(context.pages)
@@ -102,26 +108,37 @@ def pay_with_password(cookies, order_id, password, headless=True):
             pages = [item for item in context.pages if item not in before]
             if pages:
                 page = pages[-1]
+            trace('体育经费密码支付：已选择体育经费支付')
             if not _click_first(page, ['#btnNext', 'text=下一步', 'button:has-text("下一步")']):
+                trace('体育经费密码支付：未找到下一步，未提交')
                 return '支付页面结构未识别；未提交付款'
+            trace('体育经费密码支付：已进入密码步骤')
             page.wait_for_timeout(500)
             password_input = page.locator('#password, input[type=password], .password-input').first
             if not _visible(password_input):
+                trace('体育经费密码支付：未发现密码输入步骤，未提交')
                 return '未发现支付密码输入步骤；未提交付款'
             buttons = _find_keyboard_buttons(page, password)
             if not buttons:
+                trace('体育经费密码支付：虚拟键盘不完整，未提交')
                 return '未识别完整的支付虚拟键盘；未提交付款'
             for button in buttons:
                 button.click()
                 page.wait_for_timeout(100)
+            trace('体育经费密码支付：密码已输入，准备确认')
             if not _click_first(page, ['#btnPay', 'text=确认支付', 'button:has-text("确认支付")']):
+                trace('体育经费密码支付：未找到确认支付按钮，未提交')
                 return '未找到确认支付按钮；未提交付款'
+            trace('体育经费密码支付：已提交确认，等待结果')
             page.wait_for_timeout(2500)
             body = page.locator('body').inner_text(timeout=3000)
             if any(text in body for text in ('支付成功', '缴费成功', '付款成功')):
+                trace('体育经费密码支付：页面显示支付成功')
                 return '密码支付成功，等待订单状态核实'
             if any(text in body for text in ('支付失败', '密码错误', '余额不足')):
+                trace('体育经费密码支付：页面显示支付失败')
                 return '密码支付失败，请到官网核实'
+            trace('体育经费密码支付：结果不确定，停止重试')
             return '支付结果不确定，请到官网核实；不会自动重试'
         finally:
             browser.close()

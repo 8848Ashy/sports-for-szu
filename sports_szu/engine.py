@@ -15,6 +15,7 @@ class Engine:
     def __init__(self, store, api, account, notify=lambda message: None, clock=now):
         self.store, self.api, self.account = store, api, account
         self.notify, self.clock = notify, clock
+        self.trace = getattr(api, 'trace', lambda message: None)
         self.last_review = 0
         # UI confirmation and cancellation dispatch share this lock.
         self.lock = threading.RLock()
@@ -267,6 +268,8 @@ class Engine:
         # payBookingInfo.gxje. Only compare a positive amount supplied by the site.
         reasons = []
         payment_password = self.account.get('payment_password', '')
+        mode = '体育经费网页支付' if payment_password else '余额支付'
+        self.trace(f'付款流程：已取得报价，方式={mode}，金额={amount / 100:.2f}元')
         if not payment_password:
             if quote['zuizong'] != 0:
                 reasons.append('订单仍有应付余额')
@@ -279,10 +282,12 @@ class Engine:
         if declared > 0 and declared != amount:
             reasons.append('订单金额与支付报价不一致')
         if reasons:
+            self.trace('付款流程：前置核验未通过，未提交付款')
             self.store.patch_order(key, auto_pay=False, message='；'.join(reasons) + '；未付款')
             self.notify('自动付款已暂停：' + '；'.join(reasons))
             return
         token = None if payment_password else self.api.token()
+        self.trace('付款流程：订单状态和取消截止时间核验通过')
         fresh = self.row(job)
         if fresh.get('YYZT') != 'CG_YY' or str(fresh.get('SFZF')) != '0':
             return
@@ -291,16 +296,19 @@ class Engine:
             return
         limit = self.store.get('settings', 'daily_limit', 6000)
         if not self.store.reserve_payment(key, amount, moment.date().isoformat(), limit):
+            self.trace('付款流程：付款额度预留失败，未提交付款')
             self.store.patch_order(key, message='每日付款额度不足，未付款')
             return
         try:
             if payment_password:
                 from .web_payment import pay_with_password
                 self.store.patch_order(key, pay_attempt=True, message='网页密码支付已提交；等待官网核实')
-                result = pay_with_password(list(self.api.session.cookies), key, payment_password)
+                result = pay_with_password(list(self.api.session.cookies), key, payment_password,
+                                           trace=self.trace)
                 self.store.patch_order(key, message=result + '；等待官网核实，不会自动重试')
                 self.notify(result + '；请在官网核实订单状态')
             else:
+                self.trace('余额支付：已登记支付令牌，提交付款请求')
                 self.api.pay(row['WID'], quote, token)
                 self.store.patch_order(key, pay_attempt=True, message='余额付款已尝试，等待官网核实')
         finally:

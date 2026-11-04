@@ -4,9 +4,9 @@ Windows 独立桌面预约助手，使用 Qt 原生窗口内嵌油猴式 HTML �
 
 ## 下载便携版
 
-**[点击下载 Windows 便携版 v0.3.6](https://github.com/8848Ashy/sports-for-szu/releases/download/v0.3.6/SportsForSZU-v0.3.6-win64.zip)** · [所有发布版本](https://github.com/8848Ashy/sports-for-szu/releases)
+**v0.3.6 源码已推送；便携 ZIP 尚未上传 Release。** · [所有发布版本](https://github.com/8848Ashy/sports-for-szu/releases)
 
-1. 下载 `SportsForSZU-v0.3.6-win64.zip`，右键选择“全部解压”；不要直接在压缩包内运行。
+1. 便携 ZIP 发布后，下载对应版本并右键选择“全部解压”；不要直接在压缩包内运行。
 2. 打开解压后的 `SportsForSZU` 文件夹，双击 `SportsForSZU.exe`。
 3. 保留 EXE 旁边的 `_internal` 文件夹；不需要安装 Python、Node.js，也不用运行 `setup.cmd`。
 4. 阅读并同意启动须知，在“设置”保存本人账号，点击“打开官方登录”；验证码需手动完成。

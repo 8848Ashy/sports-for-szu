@@ -74,6 +74,8 @@ async function openSettings() {
     form.elements.real_name.value = account.real_name;
     form.elements.remember.checked = account.remember;
     form.elements.password.value = account.password;
+    form.elements.payment_password.value = account.payment_password || '';
+    form.elements.remember_payment.checked = account.remember_payment || false;
     passwordOwner = account.username;
     maskPassword();
     $('#settings-dialog').showModal();
@@ -89,6 +91,10 @@ $('#toggle-password').onclick = () => {
   button.title = visible ? '隐藏密码' : '显示密码';
   button.innerHTML = icon(visible ? 'eyeOff' : 'eye');
 };
+$('#toggle-payment-password').onclick = () => {
+  const field = $('#account-form').elements.payment_password;
+  field.type = field.type === 'password' ? 'text' : 'password';
+};
 $('#settings-dialog').addEventListener('close', () => {
   $('#account-form').elements.password.value = '';
   passwordOwner = '';
@@ -103,7 +109,7 @@ $('#account-form').elements.username.addEventListener('input', event => {
 });
 $('#settings').onclick = openSettings;
 $('#summary-user').onclick = openSettings;
-function accountPayload() { const f=$('#account-form').elements; return {username:f.username.value.trim(),real_name:f.real_name.value.trim(),password:f.password.value,remember:f.remember.checked}; }
+function accountPayload() { const f=$('#account-form').elements; return {username:f.username.value.trim(),real_name:f.real_name.value.trim(),password:f.password.value,remember:f.remember.checked,payment_password:f.payment_password.value,remember_payment:f.remember_payment.checked}; }
 $('#account-form').onsubmit = async event => { event.preventDefault(); const data=accountPayload(); if(await act('account_save',data)) { passwordOwner=data.username; if(!data.remember) $('#account-form').elements.password.value=''; maskPassword(); toast(state.account.remembered?'账号和密码已加密保存在本机':'账号已保存，未记住密码'); } };
 $('#login').onclick = async () => { const data=accountPayload(); if(await act('account_save',data)) { passwordOwner=data.username; if(await act('login',{password:data.password})) { maskPassword(); toast(data.password?'正在尝试自动登录；如需验证码，请在官方窗口完成':'请在官方窗口输入密码并完成登录'); } } };
 

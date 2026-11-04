@@ -54,6 +54,11 @@ class SchoolAPI:
             result = response.json()
             if not isinstance(result, dict):
                 raise ValueError()
+            if path == 'sportVenue/insertVenueBookingInfo.do':
+                # Temporary, allow-listed diagnostics only: never log request data or full response.
+                safe_code = str(result.get('code', ''))[:40]
+                safe_msg = str(result.get('msg', ''))[:200]
+                self.trace(f'预约业务响应 code={safe_code!r} msg={safe_msg!r}')
             return result
         except (requests.RequestException, ValueError) as exc:
             self.trace(f'接口 {path} 失败类别 {type(exc).__name__} 耗时 {time.monotonic() - started:.2f}s；未记录请求参数或响应正文')

@@ -270,7 +270,8 @@ class Engine:
             reasons.append('订单仍有应付余额')
         if quote['tuipiao'] != amount:
             reasons.append('支付金额与退款金额不一致')
-        if quote['tksyje'] < amount:
+        payment_password = self.account.get('payment_password', '')
+        if quote['tksyje'] < amount and not payment_password:
             reasons.append('学校余额不足')
         if amount > job['max_cents']:
             reasons.append(f'超过单笔上限{job["max_cents"] / 100:.2f}元')
@@ -280,7 +281,7 @@ class Engine:
             self.store.patch_order(key, auto_pay=False, message='；'.join(reasons) + '；未付款')
             self.notify('自动付款已暂停：' + '；'.join(reasons))
             return
-        token = self.api.token()
+        token = None if payment_password else self.api.token()
         fresh = self.row(job)
         if fresh.get('YYZT') != 'CG_YY' or str(fresh.get('SFZF')) != '0':
             return
@@ -292,6 +293,14 @@ class Engine:
             self.store.patch_order(key, message='每日付款额度不足，未付款')
             return
         try:
-            self.api.pay(row['WID'], quote, token)
+            if payment_password:
+                from .web_payment import pay_with_password
+                self.store.patch_order(key, pay_attempt=True, message='网页密码支付已提交；等待官网核实')
+                result = pay_with_password(list(self.api.session.cookies), key, payment_password)
+                self.store.patch_order(key, message=result + '；等待官网核实，不会自动重试')
+                self.notify(result + '；请在官网核实订单状态')
+            else:
+                self.api.pay(row['WID'], quote, token)
+                self.store.patch_order(key, pay_attempt=True, message='余额付款已尝试，等待官网核实')
         finally:
-            self.notify('余额付款已尝试，正在核实；请以订单实际支付状态为准')
+            self.notify('付款流程已结束；请以学校官网订单状态为准')

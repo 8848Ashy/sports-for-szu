@@ -111,7 +111,9 @@ class DesktopService:
             account = self.vault.read()
             return {'ok': True, 'account': {
                 'username': account.get('username', ''), 'real_name': account.get('real_name', ''),
-                'password': account.get('password', ''), 'remember': bool(account.get('password'))}}
+                'password': account.get('password', ''), 'remember': bool(account.get('password')),
+                'payment_password': account.get('payment_password', ''),
+                'remember_payment': bool(account.get('payment_password'))}}
         elif name == 'booking_save':
             plan = Plan(**payload['config']).validate()
             target = self._date(payload['target_date'])
@@ -211,7 +213,12 @@ class DesktopService:
         password = ''
         if values.get('remember'):
             password = str(values.get('password') or (old.get('password', '') if old.get('username') == username else ''))
+        payment_password = ''
+        if values.get('remember_payment'):
+            payment_password = str(values.get('payment_password') or
+                (old.get('payment_password', '') if old.get('username') == username else ''))
         self.vault.update(username=username, real_name=real_name, password=password,
+                          payment_password=payment_password,
                           cookies=old.get('cookies', []) if old.get('username') == username else [])
         self.commands.put_nowait(('reload', {}))
         self.log('本地设置已保存', 'success')

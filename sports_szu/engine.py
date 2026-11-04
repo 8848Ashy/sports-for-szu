@@ -266,13 +266,14 @@ class Engine:
         # Unpaid rows commonly report TRANAMT=0.00; the authoritative quote is
         # payBookingInfo.gxje. Only compare a positive amount supplied by the site.
         reasons = []
-        if quote['zuizong'] != 0:
-            reasons.append('订单仍有应付余额')
-        if quote['tuipiao'] != amount:
-            reasons.append('支付金额与退款金额不一致')
         payment_password = self.account.get('payment_password', '')
-        if quote['tksyje'] < amount and not payment_password:
-            reasons.append('学校余额不足')
+        if not payment_password:
+            if quote['zuizong'] != 0:
+                reasons.append('订单仍有应付余额')
+            if quote['tuipiao'] != amount:
+                reasons.append('支付金额与退款金额不一致')
+            if quote['tksyje'] < amount:
+                reasons.append('学校余额不足')
         if amount > job['max_cents']:
             reasons.append(f'超过单笔上限{job["max_cents"] / 100:.2f}元')
         if declared > 0 and declared != amount:
